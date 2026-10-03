@@ -13,6 +13,7 @@ import {
   Blog,
   Enquiry,
   AuditLog,
+  SystemSetting,
 } from '../models';
 import { authenticate, requireAdmin, AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logAuditAction } from '../utils/auditLog';
@@ -997,6 +998,197 @@ router.get('/audit-logs', async (_req, res) => {
     return res.json({ success: true, data: logs });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to fetch audit logs.' });
+  }
+});
+
+// ----------------------------------------------------
+// 12. MANUAL UPI PAYMENTS VERIFICATION PANEL
+// ----------------------------------------------------
+router.get('/payments/manual', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const payments = await Payment.find()
+      .populate('userId', 'name email phone status')
+      .populate({
+        path: 'orderId',
+        populate: [
+          { path: 'courseId', select: 'name slug' },
+          { path: 'semesterId', select: 'name semesterNumber' },
+          { path: 'subjectId', select: 'name code' },
+          { path: 'materialId', select: 'title type price' },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      data: payments,
+    });
+  } catch (error) {
+    console.error('Fetch manual payments error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch payment verification queue.' });
+  }
+});
+
+router.post('/payments/:id/verify', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { action, rejectionReason } = req.body; // action: 'APPROVE' | 'REJECT'
+
+    if (!['APPROVE', 'REJECT'].includes(action)) {
+      return res.status(400).json({ success: false, message: "Action must be 'APPROVE' or 'REJECT'." });
+    }
+
+    const payment = await Payment.findById(id);
+    if (!payment) {
+      return res.status(404).json({ success: false, message: 'Payment record not found.' });
+    }
+
+    const order = await Order.findById(payment.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Associated order not found.' });
+    }
+
+    const adminId = new mongoose.Types.ObjectId(req.user!.id);
+
+    if (action === 'APPROVE') {
+      payment.status = 'SUCCESS';
+      payment.paidAt = new Date();
+      payment.verifiedBy = adminId;
+      payment.verifiedAt = new Date();
+      await payment.save();
+
+      order.status = 'SUCCESS';
+      await order.save();
+
+      // Create Purchase record
+      let purchase = await Purchase.findOne({ orderId: order._id });
+      if (!purchase) {
+        purchase = await Purchase.create({
+          userId: order.userId,
+          orderId: order._id,
+          productType: order.productType,
+          courseId: order.courseId,
+          semesterId: order.semesterId,
+          subjectId: order.subjectId,
+          materialId: order.materialId,
+          amount: order.amount,
+          status: 'SUCCESS',
+        });
+      }
+
+      // Grant Entitlement to student in MongoDB
+      let entitlement = await Entitlement.findOne({ purchaseId: purchase._id });
+      if (!entitlement) {
+        entitlement = await Entitlement.create({
+          userId: order.userId,
+          courseId: order.courseId,
+          semesterId: order.semesterId,
+          subjectId: order.subjectId,
+          materialId: order.materialId,
+          purchaseId: purchase._id,
+          status: 'ACTIVE',
+        });
+      }
+
+      await logAuditAction({
+        adminId: req.user!.id,
+        action: 'APPROVE_PAYMENT',
+        entity: 'Payment',
+        entityId: payment._id.toString(),
+        details: { utrNumber: payment.utrNumber, amount: payment.amount, userId: order.userId },
+      });
+
+      return res.json({
+        success: true,
+        message: 'Payment APPROVED successfully! Access to notes granted to the student.',
+        data: { payment, entitlement },
+      });
+    } else {
+      // REJECT ACTION
+      payment.status = 'REJECTED';
+      payment.rejectionReason = rejectionReason || 'Payment verification failed by admin';
+      payment.verifiedBy = adminId;
+      payment.verifiedAt = new Date();
+      await payment.save();
+
+      order.status = 'REJECTED';
+      await order.save();
+
+      // Revoke any entitlement if it was previously created
+      await Entitlement.updateMany({ userId: order.userId, courseId: order.courseId, materialId: order.materialId }, { status: 'REVOKED' });
+
+      await logAuditAction({
+        adminId: req.user!.id,
+        action: 'REJECT_PAYMENT',
+        entity: 'Payment',
+        entityId: payment._id.toString(),
+        details: { reason: payment.rejectionReason, utrNumber: payment.utrNumber },
+      });
+
+      return res.json({
+        success: true,
+        message: 'Payment REJECTED. Access denied.',
+        data: { payment },
+      });
+    }
+  } catch (error: any) {
+    console.error('Verify payment error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to process payment action.' });
+  }
+});
+
+// ----------------------------------------------------
+// 13. SYSTEM UPI SETTINGS
+// ----------------------------------------------------
+router.get('/settings/upi', async (_req, res: Response) => {
+  try {
+    const upiSetting = await SystemSetting.findOne({ key: 'UPI_CONFIG' });
+    const config = upiSetting?.value || {
+      upiId: 'mltlearningzone@upi',
+      payeeName: 'MLT Learning Zone',
+      qrCodeUrl: '/logo.jpg',
+      instructions: 'Pay using Google Pay, PhonePe, Paytm, or any UPI app. Enter the 12-digit UTR/Ref No. and attach a screenshot after payment.',
+    };
+
+    return res.json({ success: true, data: config });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch UPI settings.' });
+  }
+});
+
+router.post('/settings/upi', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { upiId, payeeName, qrCodeUrl, instructions } = req.body;
+
+    const value = {
+      upiId: upiId || 'mltlearningzone@upi',
+      payeeName: payeeName || 'MLT Learning Zone',
+      qrCodeUrl: qrCodeUrl || '/logo.jpg',
+      instructions: instructions || 'Scan QR Code or copy UPI ID to complete payment.',
+    };
+
+    const setting = await SystemSetting.findOneAndUpdate(
+      { key: 'UPI_CONFIG' },
+      { value, updatedBy: new mongoose.Types.ObjectId(req.user!.id) },
+      { upsert: true, new: true }
+    );
+
+    await logAuditAction({
+      adminId: req.user!.id,
+      action: 'UPDATE_UPI_SETTINGS',
+      entity: 'SystemSetting',
+      entityId: setting._id.toString(),
+      details: value,
+    });
+
+    return res.json({
+      success: true,
+      message: 'UPI settings updated successfully.',
+      data: setting.value,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: 'Failed to update UPI settings.' });
   }
 });
 

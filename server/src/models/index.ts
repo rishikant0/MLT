@@ -10,3 +10,5 @@ export * from './Entitlement';
 export * from './Blog';
 export * from './Enquiry';
 export * from './AuditLog';
+export * from './SystemSetting';
+

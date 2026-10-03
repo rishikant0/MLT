@@ -16,6 +16,7 @@ import {
   Lock,
   Eye,
   RefreshCw,
+  Clock,
 } from 'lucide-react';
 
 interface StudentDashboardProps {
@@ -28,6 +29,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ initialTab =
   const paymentSuccess = searchParams.get('payment') === 'success';
 
   const [dashboardData, setDashboardData] = useState<any | null>(null);
+  const [myPayments, setMyPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'courses' | 'materials' | 'purchases' | 'payments' | 'profile'>(initialTab);
 
@@ -38,9 +40,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ initialTab =
   useEffect(() => {
     const fetchDashboard = async () => {
       try {
-        const res: any = await api.get('/student/dashboard');
-        if (res.success && res.data) {
-          setDashboardData(res.data);
+        const [dashRes, payRes]: any = await Promise.all([
+          api.get('/student/dashboard'),
+          api.get('/payments/my-payments'),
+        ]);
+
+        if (dashRes.success && dashRes.data) {
+          setDashboardData(dashRes.data);
+        }
+        if (payRes.success && payRes.data) {
+          setMyPayments(payRes.data);
         }
       } catch (err) {
         console.error(err);
@@ -353,20 +362,75 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ initialTab =
 
         {activeTab === 'payments' && (
           <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm space-y-6">
-            <h3 className="text-lg font-bold text-brand-darkNavy">My Payment Transactions</h3>
-            {recentPurchases.length === 0 ? (
-              <p className="text-xs text-brand-muted">No payment records found.</p>
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-brand-darkNavy">My Payment Transactions</h3>
+                <p className="text-xs text-brand-muted">Track your direct UPI QR & Razorpay payment status in real-time.</p>
+              </div>
+              <span className="text-xs font-bold text-brand-teal bg-teal-50 px-3 py-1 rounded-full">
+                {myPayments.length} Transactions
+              </span>
+            </div>
+
+            {myPayments.length === 0 ? (
+              <div className="text-center py-12 text-brand-muted space-y-3">
+                <CreditCard className="w-10 h-10 text-gray-300 mx-auto" />
+                <p className="text-sm font-semibold">No payment records found.</p>
+                <Link to="/courses" className="inline-block px-5 py-2.5 rounded-xl bg-brand-navy text-white text-xs font-bold">
+                  Browse Courses & Notes
+                </Link>
+              </div>
             ) : (
-              <div className="space-y-3">
-                {recentPurchases.map((p: any) => (
-                  <div key={p._id || p.id} className="p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-sm text-brand-darkNavy">UPI / Razorpay Payment</div>
-                      <div className="text-xs text-gray-500">Ref ID: {p._id}</div>
+              <div className="space-y-4">
+                {myPayments.map((p: any) => (
+                  <div key={p.id || p._id} className="p-5 rounded-2xl border border-gray-100 bg-brand-bg flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-brand-navy/10 text-brand-navy">
+                          {p.paymentMethod || 'UPI_MANUAL'}
+                        </span>
+                        <h4 className="font-bold text-sm text-brand-darkNavy">{p.itemTitle}</h4>
+                      </div>
+                      <p className="text-xs text-brand-muted font-mono">
+                        UTR / Ref No: <span className="font-bold text-brand-darkNavy">{p.utrNumber}</span>
+                      </p>
+                      <p className="text-[11px] text-gray-500">
+                        Submitted on {new Date(p.createdAt).toLocaleString()}
+                      </p>
                     </div>
-                    <div className="text-right">
-                      <div className="font-bold text-sm text-emerald-600">₹{p.amount?.toLocaleString('en-IN')}</div>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">VERIFIED</span>
+
+                    <div className="text-left md:text-right space-y-1">
+                      <div className="font-extrabold text-base text-brand-darkNavy">
+                        ₹{p.amount?.toLocaleString('en-IN')}
+                      </div>
+                      
+                      {p.status === 'SUCCESS' && (
+                        <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-md font-extrabold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          VERIFIED • ACCESS UNLOCKED
+                        </span>
+                      )}
+
+                      {p.status === 'PENDING' && (
+                        <div className="space-y-1">
+                          <span className="inline-flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-md font-extrabold">
+                            <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                            PENDING ADMIN VERIFICATION
+                          </span>
+                          <p className="text-[10px] text-amber-700 block">Admin will verify UTR shortly.</p>
+                        </div>
+                      )}
+
+                      {p.status === 'REJECTED' && (
+                        <div className="space-y-1">
+                          <span className="inline-flex items-center gap-1 text-[10px] bg-rose-100 text-rose-800 border border-rose-200 px-2.5 py-1 rounded-md font-extrabold">
+                            REJECTED / ACCESS DENIED
+                          </span>
+                          {p.rejectionReason && (
+                            <p className="text-[10px] text-rose-600 max-w-xs">{p.rejectionReason}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

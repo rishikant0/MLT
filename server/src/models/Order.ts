@@ -7,6 +7,7 @@ export type OrderStatus =
   | 'PROCESSING'
   | 'SUCCESS'
   | 'FAILED'
+  | 'REJECTED'
   | 'CANCELLED'
   | 'EXPIRED'
   | 'REFUNDED';
@@ -21,8 +22,9 @@ export interface IOrder extends Document {
   materialId?: mongoose.Types.ObjectId;
   amount: number;
   currency: string;
+  paymentMethod: 'UPI_MANUAL' | 'RAZORPAY';
   status: OrderStatus;
-  razorpayOrderId: string;
+  razorpayOrderId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,13 +39,14 @@ const OrderSchema = new Schema<IOrder>(
     materialId: { type: Schema.Types.ObjectId, ref: 'Material' },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'INR' },
+    paymentMethod: { type: String, enum: ['UPI_MANUAL', 'RAZORPAY'], default: 'RAZORPAY' },
     status: {
       type: String,
-      enum: ['CREATED', 'PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'],
+      enum: ['CREATED', 'PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'REFUNDED'],
       default: 'CREATED',
       index: true,
     },
-    razorpayOrderId: { type: String, required: true, index: true },
+    razorpayOrderId: { type: String, index: true },
   },
   { timestamps: true }
 );
