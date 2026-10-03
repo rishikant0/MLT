@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String        @id @default(uuid())
+  name             String
+  email            String        @unique
+  phone            String?
+  passwordHash     String
+  role             String        @default("STUDENT") // STUDENT, ADMIN
+  coursePreference String?
+  avatar           String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  orders           Order[]
+  purchases        Purchase[]
+  entitlements     Entitlement[]
+  auditLogs        AuditLog[]
+}
+
+model Course {
+  id           String      @id @default(uuid())
+  name         String
+  slug         String      @unique
+  category     String      // PHARMACY, MEDICAL LABORATORY, THERAPY, RADIOLOGY, ALLIED HEALTH, NURSING
+  description  String
+  duration     String      // e.g., "2 Years", "4 Years"
+  eligibility  String      // e.g., "10+2 with PCB/PCM"
+  careerOps    String?     // JSON array or text
+  thumbnail    String?
+  status       String      @default("ACTIVE") // ACTIVE, DRAFT, INACTIVE
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  semesters    Semester[]
+  entitlements Entitlement[]
+}
+
+model Semester {
+  id             String      @id @default(uuid())
+  courseId       String
+  name           String      // e.g., "Semester 1"
+  semesterNumber Int
+  fee            Float       @default(0)
+  status         String      @default("ACTIVE")
+  order          Int         @default(1)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  course         Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  subjects       Subject[]
+  entitlements   Entitlement[]
+}
+
+model Subject {
+  id          String      @id @default(uuid())
+  semesterId  String
+  name        String
+  code        String?
+  description String?
+  fee         Float       @default(0)
+  status      String      @default("ACTIVE")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  semester    Semester    @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  materials   Material[]
+  entitlements Entitlement[]
+}
+
+model Material {
+  id          String   @id @default(uuid())
+  subjectId   String
+  title       String
+  description String?
+  type        String   @default("PDF") // PDF, HANDWRITTEN_NOTES, MCQ, QUESTION_BANK, SHORT_NOTES, LONG_QUESTIONS, PREVIOUS_YEAR_QUESTIONS, VIDEO, DOCUMENT
+  fileUrl     String
+  previewUrl  String?
+  storageKey  String?
+  fileSize    String?
+  status      String   @default("ACTIVE")
+  isSample    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+}
+
+model Pricing {
+  id                  String   @id @default(uuid())
+  entityType          String   // COURSE, SEMESTER, SUBJECT, MATERIAL
+  entityId            String
+  price               Float
+  offerPrice          Float?
+  discountPercentage  Float?   @default(0)
+  currency            String   @default("INR")
+  accessDurationDays  Int      @default(365) // 0 = Lifetime, 365 = 1 year
+  status              String   @default("ACTIVE")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model Order {
+  id               String   @id @default(uuid())
+  orderIdString    String   @unique
+  userId           String
+  itemType         String   // COURSE, SEMESTER, SUBJECT
+  itemId           String
+  itemTitle        String   @default("Course Access")
+  amount           Float
+  currency         String   @default("INR")
+  status           String   @default("PENDING") // PENDING, PAID, FAILED, REFUNDED
+  razorpayOrderId  String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments         Payment[]
+  purchases        Purchase[]
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  orderId     String
+  paymentId   String
+  gateway     String   @default("RAZORPAY")
+  amount      Float
+  currency    String   @default("INR")
+  status      String   @default("SUCCESS")
+  signature   String?
+  method      String?  @default("UPI")
+  payloadJson String?
+  createdAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Purchase {
+  id         String    @id @default(uuid())
+  userId     String
+  orderId    String
+  itemType   String    // COURSE, SEMESTER, SUBJECT
+  itemId     String
+  amount     Float
+  validUntil DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Entitlement {
+  id           String    @id @default(uuid())
+  userId       String
+  courseId     String?
+  semesterId   String?
+  subjectId    String?
+  isFullCourse Boolean   @default(false)
+  status       String    @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course       Course?   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  semester     Semester? @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  subject      Subject?  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+}
+
+model Blog {
+  id             String    @id @default(uuid())
+  title          String
+  slug           String    @unique
+  content        String
+  category       String    @default("Exam Preparation")
+  authorName     String    @default("Dr. S. K. Sharma")
+  featuredImage  String?
+  seoTitle       String?
+  seoDescription String?
+  status         String    @default("PUBLISHED") // DRAFT, PUBLISHED
+  publishedAt    DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Enquiry {
+  id             String   @id @default(uuid())
+  name           String
+  email          String
+  phone          String
+  courseInterest String?
+  message        String
+  status         String   @default("PENDING") // PENDING, CONTACTED, RESOLVED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  adminId     String?
+  adminEmail  String?
+  action      String   // e.g., "CREATE_COURSE", "UPDATE_PRICE", "UPLOAD_MATERIAL"
+  entity      String   // e.g., "Course", "Pricing", "Material"
+  entityId    String?
+  detailsJson String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
+}
