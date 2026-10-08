@@ -10,6 +10,11 @@ export interface IUser extends Document {
   avatar?: string;
   isVerified: boolean;
   status: 'ACTIVE' | 'INACTIVE';
+  resetOtp?: string;
+  resetOtpExpires?: Date;
+  resetOtpAttempts?: number;
+  resetToken?: string;
+  resetTokenExpires?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,6 +29,11 @@ const UserSchema = new Schema<IUser>(
     avatar: { type: String },
     isVerified: { type: Boolean, default: true },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
+    resetOtp: { type: String },
+    resetOtpExpires: { type: Date },
+    resetOtpAttempts: { type: Number, default: 0 },
+    resetToken: { type: String },
+    resetTokenExpires: { type: Date },
   },
   { timestamps: true }
 );

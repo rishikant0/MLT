@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { Order, Payment, Purchase, Entitlement, Course, Semester, Subject, Material, SystemSetting } from '../models';
 import { authenticate, AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { createRazorpayOrder, verifyRazorpaySignature, verifyRazorpayWebhookSignature } from '../services/razorpay.service';
+import { triggerEnrollmentNotifications } from '../services/emailService';
+import { calculateCoursePrice, resolveEffectivePrice } from '../services/pricing.service';
 import mongoose from 'mongoose';
 
 const router = Router();
@@ -94,8 +96,49 @@ async function processSuccessfulOrder(order: any, razorpayPaymentId: string, met
     });
   }
 
+  // Trigger non-blocking enrollment notifications (Admin & Student emails + Admin Notification record)
+  triggerEnrollmentNotifications(order._id.toString());
+
   return { purchase, entitlement };
 }
+
+// 0. Calculate Price (Public API)
+router.post('/calculate-price', async (req, res) => {
+  try {
+    const parsed = createOrderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: parsed.error.errors[0].message });
+    }
+
+    const { productType, courseId, semesterId, subjectId, materialId } = parsed.data;
+    const itemId = productType === 'COURSE'
+      ? courseId
+      : productType === 'SEMESTER'
+        ? semesterId
+        : productType === 'SUBJECT'
+          ? subjectId
+          : materialId;
+    if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json({ success: false, message: `A valid ${productType.toLowerCase()} ID is required.` });
+    }
+
+    const result = await calculateCoursePrice({
+      productType,
+      courseId,
+      semesterId,
+      subjectId,
+      materialId,
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: 'Failed to calculate price.' });
+  }
+});
 
 // 1. Create Order
 router.post('/create-order', authenticate, async (req: AuthenticatedRequest, res: Response) => {
@@ -108,47 +151,23 @@ router.post('/create-order', authenticate, async (req: AuthenticatedRequest, res
     const { productType, courseId, semesterId, subjectId, materialId } = parsed.data;
     const userId = req.user!.id;
 
-    let amount = 0;
-
     // READ PRICE AUTHORITATIVELY FROM MONGODB DATABASE
-    if (productType === 'COURSE') {
-      if (!courseId || !mongoose.Types.ObjectId.isValid(courseId)) {
-        return res.status(400).json({ success: false, message: 'Valid courseId is required.' });
-      }
-      const course = await Course.findById(courseId);
-      if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
+    const pricingResult = await calculateCoursePrice({
+      productType,
+      courseId,
+      semesterId,
+      subjectId,
+      materialId,
+    });
 
-      // Sum active semesters
-      const semesters = await Semester.find({ courseId: course._id, status: 'ACTIVE' });
-      const semTotal = semesters.reduce((sum, s) => sum + (s.price || 0), 0);
-      amount = semTotal > 0 ? Math.round(semTotal * 0.85) : 8999;
-    } else if (productType === 'SEMESTER') {
-      if (!semesterId || !mongoose.Types.ObjectId.isValid(semesterId)) {
-        return res.status(400).json({ success: false, message: 'Valid semesterId is required.' });
-      }
-      const semester = await Semester.findById(semesterId);
-      if (!semester) return res.status(404).json({ success: false, message: 'Semester not found.' });
-      amount = semester.price || 2999;
-    } else if (productType === 'SUBJECT') {
-      if (!subjectId || !mongoose.Types.ObjectId.isValid(subjectId)) {
-        return res.status(400).json({ success: false, message: 'Valid subjectId is required.' });
-      }
-      const subject = await Subject.findById(subjectId);
-      if (!subject) return res.status(404).json({ success: false, message: 'Subject not found.' });
-      amount = subject.price || 499;
-    } else if (productType === 'MATERIAL') {
-      if (!materialId || !mongoose.Types.ObjectId.isValid(materialId)) {
-        return res.status(400).json({ success: false, message: 'Valid materialId is required.' });
-      }
-      const material = await Material.findById(materialId);
-      if (!material) return res.status(404).json({ success: false, message: 'Material not found.' });
-      amount = material.price || 199;
+    if (!pricingResult.success || !pricingResult.pricing) {
+      return res.status(400).json({
+        success: false,
+        message: pricingResult.message || 'Price is not configured for this course.',
+      });
     }
 
-    if (amount <= 0) {
-      amount = 199; // Fallback minimum safeguard
-    }
-
+    const amount = pricingResult.pricing.finalPrice;
     const receipt = `REC_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
     // Create Razorpay Order
@@ -341,8 +360,8 @@ router.get('/upi-details', async (_req, res: Response) => {
   }
 });
 
-// 6. Submit Manual UPI Payment: POST /api/payments/submit-upi
-router.post('/submit-upi', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+// 6. Submit Manual UPI Payment: POST /api/payments/submit-upi & POST /api/payments/submit
+router.post(['/submit-upi', '/submit'], authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const parsed = submitUpiSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -356,43 +375,23 @@ router.post('/submit-upi', authenticate, async (req: AuthenticatedRequest, res: 
     let itemTitle = 'Study Material';
 
     // READ PRICE AUTHORITATIVELY FROM MONGODB DATABASE
-    if (productType === 'COURSE') {
-      if (!courseId || !mongoose.Types.ObjectId.isValid(courseId)) {
-        return res.status(400).json({ success: false, message: 'Valid courseId is required.' });
-      }
-      const course = await Course.findById(courseId);
-      if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
-      const semesters = await Semester.find({ courseId: course._id, status: 'ACTIVE' });
-      const semTotal = semesters.reduce((sum, s) => sum + (s.price || 0), 0);
-      amount = semTotal > 0 ? Math.round(semTotal * 0.85) : 8999;
-      itemTitle = course.name;
-    } else if (productType === 'SEMESTER') {
-      if (!semesterId || !mongoose.Types.ObjectId.isValid(semesterId)) {
-        return res.status(400).json({ success: false, message: 'Valid semesterId is required.' });
-      }
-      const semester = await Semester.findById(semesterId);
-      if (!semester) return res.status(404).json({ success: false, message: 'Semester not found.' });
-      amount = semester.price || 2999;
-      itemTitle = semester.name;
-    } else if (productType === 'SUBJECT') {
-      if (!subjectId || !mongoose.Types.ObjectId.isValid(subjectId)) {
-        return res.status(400).json({ success: false, message: 'Valid subjectId is required.' });
-      }
-      const subject = await Subject.findById(subjectId);
-      if (!subject) return res.status(404).json({ success: false, message: 'Subject not found.' });
-      amount = subject.price || 499;
-      itemTitle = subject.name;
-    } else if (productType === 'MATERIAL') {
-      if (!materialId || !mongoose.Types.ObjectId.isValid(materialId)) {
-        return res.status(400).json({ success: false, message: 'Valid materialId is required.' });
-      }
-      const material = await Material.findById(materialId);
-      if (!material) return res.status(404).json({ success: false, message: 'Material not found.' });
-      amount = material.price || 199;
-      itemTitle = material.title;
+    const pricingResult = await calculateCoursePrice({
+      productType,
+      courseId,
+      semesterId,
+      subjectId,
+      materialId,
+    });
+
+    if (!pricingResult.success || !pricingResult.pricing) {
+      return res.status(400).json({
+        success: false,
+        message: pricingResult.message || 'Price is not configured for this course.',
+      });
     }
 
-    if (amount <= 0) amount = 199;
+    amount = pricingResult.pricing.finalPrice;
+    itemTitle = pricingResult.pricing.title;
 
     const manualOrderId = `UPI_ORD_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -424,6 +423,9 @@ router.post('/submit-upi', authenticate, async (req: AuthenticatedRequest, res: 
       status: 'PENDING',
       signatureVerified: false,
     });
+
+    // Trigger non-blocking enrollment notifications (Admin & Student emails + Admin Notification record)
+    triggerEnrollmentNotifications(dbOrder._id.toString());
 
     return res.status(201).json({
       success: true,
@@ -515,6 +517,71 @@ router.get('/my-payments', authenticate, async (req: AuthenticatedRequest, res: 
   } catch (error) {
     console.error('Fetch my payments error:', error);
     return res.status(500).json({ success: false, message: 'Failed to fetch payment history.' });
+  }
+});
+
+// POST /api/purchases (Create purchase record with server-side effective price calculation)
+router.post('/purchases', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { courseId, semesterId, subjectId, materialId, purchaseType, productType } = req.body;
+    const userId = req.user!.id;
+
+    const targetType = (productType || purchaseType || (materialId ? 'MATERIAL' : subjectId ? 'SUBJECT' : semesterId ? 'SEMESTER' : 'COURSE')).toUpperCase();
+
+    const pricing = await resolveEffectivePrice({ courseId, semesterId, subjectId, materialId, productType: targetType });
+
+    if (!pricing || pricing.offerPrice <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Price is not configured for this course.',
+      });
+    }
+
+    const manualOrderId = `PUR_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const dbOrder = await Order.create({
+      userId: new mongoose.Types.ObjectId(userId),
+      productType: targetType,
+      courseId: courseId && mongoose.Types.ObjectId.isValid(courseId) ? new mongoose.Types.ObjectId(courseId) : undefined,
+      semesterId: semesterId && mongoose.Types.ObjectId.isValid(semesterId) ? new mongoose.Types.ObjectId(semesterId) : undefined,
+      subjectId: subjectId && mongoose.Types.ObjectId.isValid(subjectId) ? new mongoose.Types.ObjectId(subjectId) : undefined,
+      materialId: materialId && mongoose.Types.ObjectId.isValid(materialId) ? new mongoose.Types.ObjectId(materialId) : undefined,
+      amount: pricing.offerPrice,
+      currency: 'INR',
+      paymentMethod: 'MANUAL',
+      status: 'PENDING',
+      razorpayOrderId: manualOrderId,
+    });
+
+    const purchase = await Purchase.create({
+      userId: new mongoose.Types.ObjectId(userId),
+      orderId: dbOrder._id,
+      productType: targetType,
+      courseId: dbOrder.courseId,
+      semesterId: dbOrder.semesterId,
+      subjectId: dbOrder.subjectId,
+      materialId: dbOrder.materialId,
+      amount: pricing.offerPrice,
+      originalAmount: pricing.originalPrice,
+      offerAmount: pricing.offerPrice,
+      status: 'PENDING',
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Purchase record created successfully with PENDING status.',
+      data: {
+        orderId: dbOrder._id.toString(),
+        purchaseId: purchase._id.toString(),
+        amount: pricing.offerPrice,
+        originalAmount: pricing.originalPrice,
+        offerAmount: pricing.offerPrice,
+        status: 'PENDING',
+      },
+    });
+  } catch (error: any) {
+    console.error('Create purchase error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to create purchase record.' });
   }
 });
 

@@ -11,6 +11,8 @@ export interface ICourse extends Document {
   eligibility?: string;
   careerOpportunities: string[];
   thumbnail?: string;
+  price?: number;
+  offerPrice?: number;
   status: 'ACTIVE' | 'INACTIVE';
   createdAt: Date;
   updatedAt: Date;
@@ -27,6 +29,8 @@ const CourseSchema = new Schema<ICourse>(
     eligibility: { type: String },
     careerOpportunities: [{ type: String }],
     thumbnail: { type: String },
+    price: { type: Number, default: 0 },
+    offerPrice: { type: Number, default: 0 },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE', index: true },
   },
   { timestamps: true }

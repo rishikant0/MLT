@@ -55,30 +55,33 @@ export const AdminOrdersPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {orders.map((ord: any) => (
-                <tr key={ord.id} className="hover:bg-slate-800/50 text-xs">
-                  <td className="p-4 font-mono font-bold text-slate-200">{ord.orderIdString}</td>
-                  <td className="p-4 font-bold text-white">
-                    {ord.user?.name}
-                    <span className="block text-[10px] text-slate-500 font-normal">{ord.user?.email}</span>
-                  </td>
-                  <td className="p-4 font-semibold text-brand-teal">{ord.itemTitle}</td>
-                  <td className="p-4 font-bold text-emerald-400">₹{ord.amount}</td>
-                  <td className="p-4 font-mono text-slate-400">{ord.razorpayPaymentId || 'N/A'}</td>
-                  <td className="p-4">
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${ord.status === 'PAID' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                      {ord.status}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right">
-                    {ord.status === 'PAID' && (
-                      <button onClick={() => handleRefund(ord.id)} className="px-3 py-1 bg-red-500/20 text-red-400 font-bold rounded-lg hover:bg-red-500 hover:text-white">
-                        Refund
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {orders.map((ord: any) => {
+                const ordId = ord._id || ord.id;
+                return (
+                  <tr key={ordId} className="hover:bg-slate-800/50 text-xs">
+                    <td className="p-4 font-mono font-bold text-slate-200">{ord.razorpayOrderId || ord.orderIdString || ord._id}</td>
+                    <td className="p-4 font-bold text-white">
+                      {ord.userId?.name || ord.user?.name || 'Student'}
+                      <span className="block text-[10px] text-slate-500 font-normal">{ord.userId?.email || ord.user?.email}</span>
+                    </td>
+                    <td className="p-4 font-semibold text-brand-teal">{ord.courseId?.name || ord.itemTitle || 'Course Order'}</td>
+                    <td className="p-4 font-bold text-emerald-400">₹{ord.amount}</td>
+                    <td className="p-4 font-mono text-slate-400">{ord.razorpayPaymentId || 'N/A'}</td>
+                    <td className="p-4">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase ${ord.status === 'PAID' || ord.status === 'SUCCESS' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                        {ord.status}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      {(ord.status === 'PAID' || ord.status === 'SUCCESS') && (
+                        <button onClick={() => handleRefund(ordId)} className="px-3 py-1 bg-red-500/20 text-red-400 font-bold rounded-lg hover:bg-red-500 hover:text-white">
+                          Refund
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

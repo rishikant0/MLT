@@ -113,9 +113,10 @@ export const AdminDashboardPage: React.FC = () => {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={charts?.courseSalesChart || []} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="sales">
-                  {(charts?.courseSalesChart || []).map((_: any, index: number) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
+                  {(charts?.courseSalesChart || []).map((entry: any, index: number) => {
+                    const key = entry._id ?? entry.id ?? entry.courseId?._id ?? entry.courseId ?? entry.name ?? entry.courseName ?? entry.label;
+                    return key ? <Cell key={String(key)} fill={COLORS[index % COLORS.length]} /> : null;
+                  })}
                 </Pie>
                 <Tooltip contentStyle={{ background: '#0F172A', border: '1px solid #334155' }} />
               </PieChart>
@@ -133,10 +134,10 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
           <div className="space-y-3">
             {recentOrders.map((ord: any) => (
-              <div key={ord.id} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex justify-between text-xs">
+              <div key={ord._id ?? ord.id ?? ord.razorpayOrderId} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex justify-between text-xs">
                 <div>
-                  <p className="font-bold text-white">{ord.user?.name}</p>
-                  <p className="text-slate-400">{ord.itemTitle}</p>
+                  <p className="font-bold text-white">{ord.userId?.name || ord.user?.name || 'Student'}</p>
+                  <p className="text-slate-400">{ord.courseId?.name || ord.itemTitle || 'Course Order'}</p>
                 </div>
                 <div className="text-right">
                   <span className="font-bold text-emerald-400">₹{ord.amount}</span>
@@ -154,10 +155,10 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
           <div className="space-y-3">
             {recentEnquiries.map((enq: any) => (
-              <div key={enq.id} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
+              <div key={enq._id ?? enq.id} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
                 <div className="flex justify-between font-bold text-white">
                   <span>{enq.name} ({enq.phone})</span>
-                  <span className="text-amber-400">{enq.courseInterest}</span>
+                  <span className="text-amber-400">{enq.courseInterest || enq.subject}</span>
                 </div>
                 <p className="text-slate-400 line-clamp-1">{enq.message}</p>
               </div>

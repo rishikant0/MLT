@@ -67,6 +67,9 @@ export const PaymentStatusPage: React.FC = () => {
               <p className="text-xs text-brand-muted mt-1">
                 Your study material access entitlement has been activated.
               </p>
+              <div className="mt-3 p-3 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200/60">
+                Enrollment confirmed. A confirmation email has been sent to your registered email.
+              </div>
             </div>
 
             <div className="bg-slate-50 p-4 rounded-2xl border border-gray-100 space-y-2 text-left text-xs">

@@ -72,15 +72,16 @@ export const AdminCoursesPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (editingCourse) {
-        await api.put(`/admin/courses/${editingCourse.id}`, formData);
+      const crsId = (editingCourse as any)?._id || editingCourse?.id;
+      if (editingCourse && crsId) {
+        await api.put(`/admin/courses/${crsId}`, formData);
       } else {
         await api.post('/admin/courses', formData);
       }
       setModalOpen(false);
       fetchCourses();
-    } catch (err) {
-      alert('Failed to save course');
+    } catch (err: any) {
+      alert(`Failed to save course: ${err.response?.data?.message || err.message || 'Error occurred'}`);
     }
   };
 
@@ -149,28 +150,31 @@ export const AdminCoursesPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {courses.map((c) => (
-                <tr key={c.id} className="hover:bg-slate-800/50">
-                  <td className="p-4 font-bold text-white flex items-center gap-3">
-                    <img src={c.thumbnail || ''} className="w-10 h-10 rounded-xl object-cover" />
-                    <div>
-                      <span>{c.name}</span>
-                      <span className="block text-[11px] text-slate-500">/{c.slug}</span>
-                    </div>
-                  </td>
-                  <td className="p-4 font-semibold text-brand-teal text-xs">{c.category}</td>
-                  <td className="p-4 text-xs">{c.duration}</td>
-                  <td className="p-4">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${c.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right space-x-2">
-                    <button onClick={() => handleOpenEdit(c)} className="p-2 rounded-lg bg-slate-800"><Edit2 className="w-4 h-4" /></button>
-                    <button onClick={() => setDeleteConfirmId(c.id)} className="p-2 rounded-lg bg-red-500/20 text-red-400"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              ))}
+              {courses.map((c: any) => {
+                const crsId = c._id || c.id;
+                return (
+                  <tr key={crsId} className="hover:bg-slate-800/50">
+                    <td className="p-4 font-bold text-white flex items-center gap-3">
+                      <img src={c.thumbnail || ''} className="w-10 h-10 rounded-xl object-cover" />
+                      <div>
+                        <span>{c.name}</span>
+                        <span className="block text-[11px] text-slate-500">/{c.slug}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 font-semibold text-brand-teal text-xs">{c.category}</td>
+                    <td className="p-4 text-xs">{c.duration}</td>
+                    <td className="p-4">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${c.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {c.status}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right space-x-2">
+                      <button onClick={() => handleOpenEdit(c)} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => setDeleteConfirmId(crsId)} className="p-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400"><Trash2 className="w-4 h-4" /></button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

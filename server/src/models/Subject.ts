@@ -17,7 +17,7 @@ const SubjectSchema = new Schema<ISubject>(
   {
     courseId: { type: Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
     semesterId: { type: Schema.Types.ObjectId, ref: 'Semester', required: true, index: true },
-    name: { type: String, required: true, trim: true },
+    name: { type: String, trim: true, default: '' },
     code: { type: String, trim: true },
     description: { type: String },
     price: { type: Number, default: 0 },

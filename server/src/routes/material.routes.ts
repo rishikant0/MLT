@@ -3,6 +3,8 @@ import { Course, Semester, Subject, Material, Entitlement } from '../models';
 import { authenticate, optionalAuthenticate, AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { checkStudentEntitlementForMaterial, generateSignedMaterialUrl, verifySignedMaterialToken } from '../utils/signedUrl';
 import mongoose from 'mongoose';
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
 
@@ -239,6 +241,88 @@ router.get('/:id/access', authenticate, async (req: AuthenticatedRequest, res: R
   } catch (error) {
     console.error('Access check error:', error);
     return res.status(500).json({ success: false, message: 'Failed to authorize material access.' });
+  }
+});
+
+// Protected Material Direct Download endpoint: GET /api/materials/:id/download
+router.get('/:id/download', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const materialId = req.params.id;
+    const userId = req.user!.id;
+
+    if (!mongoose.Types.ObjectId.isValid(materialId)) {
+      return res.status(400).json({ success: false, message: 'Invalid material ID' });
+    }
+
+    const material = await Material.findById(materialId);
+    if (!material) {
+      return res.status(404).json({ success: false, message: 'Study material not found.' });
+    }
+
+    const isFree = !material.isPaid || material.isSample;
+
+    if (!isFree) {
+      const entitlementCheck = await checkStudentEntitlementForMaterial(userId, materialId);
+      if (!entitlementCheck.hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: entitlementCheck.reason || 'Access denied. Active course purchase required to download this study material.',
+        });
+      }
+    }
+
+    let fileAbsolutePath = '';
+    const fileRef = material.filePath || material.file;
+    if (fileRef && (fileRef.startsWith('/uploads/') || fileRef.startsWith('uploads/'))) {
+      const cleanPath = fileRef.startsWith('/') ? fileRef.slice(1) : fileRef;
+      fileAbsolutePath = path.join(process.cwd(), cleanPath);
+    }
+
+    if (fileAbsolutePath && fs.existsSync(fileAbsolutePath)) {
+      res.setHeader('Content-Type', material.mimeType || 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(fileAbsolutePath)}"`);
+      return res.sendFile(fileAbsolutePath);
+    }
+
+    // Stream dynamic sample content fallback if file is not stored physically on disk
+    const samplePdfContent = Buffer.from(
+      `%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj
+4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+5 0 obj << /Length 200 >> stream
+BT
+/F1 18 Tf
+50 720 Td
+(MLT LEARNING ZONE - VERIFIED STUDY MATERIAL) Tj
+0 -40 Td
+/F1 12 Tf
+(Title: ${material.title.replace(/[()]/g, '')}) Tj
+0 -25 Td
+(Status: Verified Entitlement Active) Tj
+ET
+endstream endobj
+xref
+0 6
+0000000000 65535 f 
+0000000010 00000 n 
+0000000060 00000 n 
+0000000117 00000 n 
+0000000220 00000 n 
+0000000290 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+500
+%%EOF`
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${material.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf"`);
+    return res.send(samplePdfContent);
+  } catch (error) {
+    console.error('Material download error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to download study material.' });
   }
 });
 

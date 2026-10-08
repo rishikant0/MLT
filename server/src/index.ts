@@ -3,8 +3,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { connectDB } from './lib/db';
+import { ensureUploadDirectories } from './services/upload.service';
 
 import authRoutes from './routes/auth.routes';
 import courseRoutes from './routes/course.routes';
@@ -18,8 +20,8 @@ import { Course, Subject, Material, User } from './models';
 
 dotenv.config();
 
-// Connect to MongoDB Atlas
-connectDB();
+// Ensure local uploads directory structure exists
+ensureUploadDirectories();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -53,6 +55,19 @@ app.use(
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Development API Route Logger
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    res.on('finish', () => {
+      console.log(`[API LOG] ${req.method} ${req.originalUrl} ${res.statusCode}`);
+    });
+    next();
+  });
+}
+
+// Serve static uploads (materials, payment screenshots, course images, blog, etc.)
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Rate limiter
 const apiLimiter = rateLimit({
@@ -111,7 +126,7 @@ app.get('/api/stats', async (_req, res) => {
   }
 });
 
-// API Routes
+// API Routes & Route Aliases
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/study-material', materialRoutes);
@@ -122,9 +137,19 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/blog', blogRoutes);
 app.use('/api/enquire', enquiryRoutes);
 
+// Direct Aliases for Top-Level Collections to prevent "API Route not found"
+app.use('/api/semesters', adminRoutes);
+app.use('/api/subjects', adminRoutes);
+app.use('/api/pricing', adminRoutes);
+app.use('/api/purchases', adminRoutes);
+
 // Centralized 404 Handler
-app.use((_req, res) => {
-  res.status(404).json({ success: false, message: 'API Route not found' });
+app.use((req, res) => {
+  res.status(404).json({
+    message: 'API route not found',
+    method: req.method,
+    path: req.originalUrl,
+  });
 });
 
 // Global Error Handler
@@ -136,6 +161,11 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 MLT Learning Zone Server running on port ${PORT}`);
-});
+const startServer = async () => {
+  await connectDB();
+  app.listen(PORT, () => {
+    console.log(`🚀 MLT Learning Zone Server running on port ${PORT}`);
+  });
+};
+
+void startServer();

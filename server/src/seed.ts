@@ -49,12 +49,14 @@ async function seed() {
   console.log('🧹 Cleaned existing database records.');
 
   // 1. Seed Demo Admin & Student Users
-  const adminPassword = await bcrypt.hash('Admin@12345', 10);
+  const rawAdminEmail = process.env.ADMIN_EMAIL || 'rishikant.aws27@gmail.com';
+  const rawAdminPassword = process.env.ADMIN_PASSWORD || 'Admin@12345';
+  const adminPassword = await bcrypt.hash(rawAdminPassword, 10);
   const studentPassword = await bcrypt.hash('Student@12345', 10);
 
   const admin = await User.create({
     name: 'Academic Administrator',
-    email: 'admin@mltlearningzone.com',
+    email: rawAdminEmail.toLowerCase().trim(),
     phone: '+919876543210',
     password: adminPassword,
     role: 'ADMIN',

@@ -23,6 +23,11 @@ export interface IMaterial extends Document {
   thumbnail?: string;
   fileSize?: string;
   mimeType?: string;
+  fileName?: string;
+  originalFileName?: string;
+  filePath?: string;
+  accessLevel?: 'PUBLIC' | 'PROTECTED';
+  isSample?: boolean;
   isPaid: boolean;
   price: number;
   status: 'ACTIVE' | 'INACTIVE';
@@ -56,6 +61,10 @@ const MaterialSchema = new Schema<IMaterial>(
     thumbnail: { type: String },
     fileSize: { type: String },
     mimeType: { type: String },
+    fileName: { type: String },
+    originalFileName: { type: String },
+    filePath: { type: String },
+    accessLevel: { type: String, enum: ['PUBLIC', 'PROTECTED'], default: 'PROTECTED' },
     isPaid: { type: Boolean, default: true },
     price: { type: Number, default: 0 },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE', index: true },

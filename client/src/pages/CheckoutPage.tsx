@@ -47,6 +47,10 @@ export const CheckoutPage: React.FC = () => {
   const [submissionSuccess, setSubmissionSuccess] = useState<any | null>(null);
 
   // Fetch product price and UPI config
+  const [pricingDetails, setPricingDetails] = useState<any | null>(null);
+  const [priceError, setPriceError] = useState<string | null>(null);
+
+  // Fetch product price and UPI config
   useEffect(() => {
     const loadData = async () => {
       setFetchingItem(true);
@@ -57,6 +61,22 @@ export const CheckoutPage: React.FC = () => {
         }
 
         if (itemId) {
+          // Fetch dynamic price authoritatively from backend
+          const priceRes: any = await api.post('/payments/calculate-price', {
+            productType: itemType,
+            courseId: itemType === 'COURSE' ? itemId : undefined,
+            semesterId: itemType === 'SEMESTER' ? itemId : undefined,
+            subjectId: itemType === 'SUBJECT' ? itemId : undefined,
+            materialId: itemType === 'MATERIAL' ? itemId : undefined,
+          });
+
+          if (priceRes.success && priceRes.pricing) {
+            setPricingDetails(priceRes.pricing);
+            setPriceError(null);
+          } else {
+            setPriceError(priceRes.message || 'Price is not configured for this course.');
+          }
+
           let url = '';
           if (itemType === 'COURSE') url = `/courses/${itemId}`;
           else if (itemType === 'SEMESTER') url = `/semesters/${itemId}`;
@@ -70,8 +90,9 @@ export const CheckoutPage: React.FC = () => {
             }
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to load item details:', err);
+        setPriceError(err.message || 'Failed to load pricing details.');
       } finally {
         setFetchingItem(false);
       }
@@ -79,29 +100,7 @@ export const CheckoutPage: React.FC = () => {
     loadData();
   }, [itemType, itemId]);
 
-  if (!itemId) {
-    return (
-      <div className="min-h-screen pt-32 text-center bg-brand-bg px-4">
-        <h2 className="text-2xl font-bold text-brand-darkNavy">No Study Note / Product Selected</h2>
-        <p className="text-xs text-brand-muted mt-2">Please select a course, semester, subject, or study note to proceed.</p>
-        <Link to="/courses" className="inline-block mt-4 px-6 py-2.5 rounded-xl bg-brand-navy text-white text-xs font-bold shadow-md">
-          Explore Courses & Study Material
-        </Link>
-      </div>
-    );
-  }
-
-  // Calculate dynamic price
-  const calculatePrice = () => {
-    if (!itemData) return 199;
-    if (itemType === 'COURSE') return itemData.pricing?.fullCourseOfferPrice || 7999;
-    if (itemType === 'SEMESTER') return itemData.offerPrice || itemData.fee || 2999;
-    if (itemType === 'SUBJECT') return itemData.offerPrice || itemData.fee || 499;
-    if (itemType === 'MATERIAL') return itemData.price || 199;
-    return 199;
-  };
-
-  const price = calculatePrice();
+  const price = pricingDetails?.finalPrice || 0;
 
   const handleCopyUpi = () => {
     navigator.clipboard.writeText(upiConfig.upiId);
@@ -342,21 +341,28 @@ export const CheckoutPage: React.FC = () => {
                 </p>
               </div>
 
-              {/* Price Breakdown */}
-              <div className="p-4 rounded-2xl bg-brand-bg border border-gray-200 space-y-2 text-xs">
-                <div className="flex justify-between text-brand-muted">
-                  <span>Base Notes Fee</span>
-                  <span>₹{(price * 1.25).toFixed(0)}</span>
+              {/* Dynamic Price Breakdown */}
+              {priceError ? (
+                <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-600 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{priceError}</span>
                 </div>
-                <div className="flex justify-between text-emerald-600 font-bold">
-                  <span>Student Discount</span>
-                  <span>- ₹{(price * 0.25).toFixed(0)}</span>
+              ) : (
+                <div className="p-4 rounded-2xl bg-brand-bg border border-gray-200 space-y-2 text-xs">
+                  <div className="flex justify-between text-brand-muted">
+                    <span>Original Price</span>
+                    <span>₹{pricingDetails?.originalPrice?.toLocaleString('en-IN') || '0'}</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-600 font-bold">
+                    <span>Discount {pricingDetails?.discountPercentage ? `(${pricingDetails.discountPercentage}%)` : ''}</span>
+                    <span>- ₹{pricingDetails?.discount?.toLocaleString('en-IN') || '0'}</span>
+                  </div>
+                  <div className="flex justify-between font-extrabold text-brand-darkNavy text-base border-t border-gray-200 pt-2 mt-2">
+                    <span>Total Payable</span>
+                    <span className="text-xl text-brand-navy font-extrabold">₹{price.toLocaleString('en-IN')}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between font-extrabold text-brand-darkNavy text-base border-t border-gray-200 pt-2 mt-2">
-                  <span>Total Payable</span>
-                  <span className="text-xl text-brand-navy font-extrabold">₹{price.toLocaleString('en-IN')}</span>
-                </div>
-              </div>
+              )}
 
               <div className="space-y-2.5 text-xs text-brand-muted">
                 <div className="flex items-center gap-2">

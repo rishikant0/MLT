@@ -1,14 +1,18 @@
+import dotenv from 'dotenv';
 import { checkStudentEntitlementForMaterial, generateSignedMaterialUrl } from '../utils/signedUrl';
 import { User, Course, Material, Entitlement } from '../models';
 import { connectDB } from '../lib/db';
 import mongoose from 'mongoose';
+
+dotenv.config();
 
 async function testAccessControl() {
   await connectDB();
   console.log('🧪 Running Access Control & Security Tests...');
 
   // 1. Get test users
-  const admin = await User.findOne({ email: 'admin@mltlearningzone.com' });
+  const adminEmail = process.env.ADMIN_EMAIL || 'rishikant.aws27@gmail.com';
+  const admin = await User.findOne({ email: adminEmail });
   const student = await User.findOne({ email: 'student@mltlearningzone.com' });
 
   if (!admin || !student) {

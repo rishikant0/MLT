@@ -96,11 +96,13 @@ export const LoginPage: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => handleQuickDemoLogin('admin@mltlearningzone.com', 'Admin@123')}
+              onClick={() => {
+                setEmail('rishikant.aws27@gmail.com');
+              }}
               className="px-3 py-2 rounded-xl bg-white border border-gray-200 text-xs font-bold text-brand-darkNavy hover:bg-brand-navy/10 hover:border-brand-navy transition-all flex items-center justify-center gap-1"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-brand-navy" />
-              <span>Demo Admin</span>
+              <span>Admin Email</span>
             </button>
           </div>
         </div>

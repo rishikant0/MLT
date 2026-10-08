@@ -14,12 +14,63 @@ import {
   Enquiry,
   AuditLog,
   SystemSetting,
+  Notification,
+  Pricing,
 } from '../models';
 import { authenticate, requireAdmin, AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { uploadMaterial } from '../middlewares/upload.middleware';
 import { logAuditAction } from '../utils/auditLog';
+import {
+  triggerEnrollmentNotifications,
+  sendStudentPaymentApprovalEmail,
+  sendStudentPaymentRejectionEmail,
+} from '../services/emailService';
 import mongoose from 'mongoose';
+import path from 'path';
 
 const router = Router();
+
+type MaterialReferences = {
+  courseId: mongoose.Types.ObjectId;
+  semesterId: mongoose.Types.ObjectId;
+  subjectId: mongoose.Types.ObjectId;
+};
+
+async function resolveMaterialReferences(
+  subjectId: unknown
+): Promise<{ references: MaterialReferences } | { error: string }> {
+  if (typeof subjectId !== 'string' || !mongoose.Types.ObjectId.isValid(subjectId)) {
+    return { error: 'A valid Subject is required.' };
+  }
+
+  const subject = await Subject.findById(subjectId);
+  if (!subject) return { error: 'Selected Subject was not found.' };
+
+  const semester = await Semester.findById(subject.semesterId);
+  if (!semester) return { error: 'Selected Subject is not linked to a valid Semester.' };
+
+  let course = semester.courseId && mongoose.Types.ObjectId.isValid(semester.courseId.toString())
+    ? await Course.findById(semester.courseId)
+    : null;
+
+  if (!course && subject.courseId && mongoose.Types.ObjectId.isValid(subject.courseId.toString())) {
+    course = await Course.findById(subject.courseId);
+    if (course) {
+      semester.courseId = course._id;
+      await semester.save();
+    }
+  }
+
+  if (!course) return { error: 'Selected Semester is not linked to a valid Course.' };
+
+  return {
+    references: {
+      courseId: course._id,
+      semesterId: semester._id,
+      subjectId: subject._id,
+    },
+  };
+}
 
 // Apply authentication and admin authorization to ALL admin routes
 router.use(authenticate, requireAdmin);
@@ -341,17 +392,25 @@ router.get('/semesters', async (req, res) => {
 
 router.post('/semesters', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { courseId, name, semesterNumber, description, price, status } = req.body;
-    if (!courseId || !name || !semesterNumber) {
-      return res.status(400).json({ success: false, message: 'Course ID, Name, and Semester Number are required.' });
+    const { courseId, name, semesterNumber, description, price, fee, status } = req.body;
+    if (!courseId || !name) {
+      return res.status(400).json({ success: false, message: 'Course ID and Semester Name are required.' });
     }
+
+    const courseExists = await Course.findById(courseId);
+    if (!courseExists) {
+      return res.status(400).json({ success: false, message: 'Specified Course does not exist.' });
+    }
+
+    const finalPrice = price !== undefined ? Number(price) : (fee !== undefined ? Number(fee) : 0);
+    const semNum = semesterNumber ? Number(semesterNumber) : 1;
 
     const semester = await Semester.create({
       courseId: new mongoose.Types.ObjectId(courseId),
       name,
-      semesterNumber: Number(semesterNumber),
+      semesterNumber: semNum,
       description,
-      price: price ? Number(price) : 2999,
+      price: finalPrice,
       status: status || 'ACTIVE',
     });
 
@@ -364,8 +423,9 @@ router.post('/semesters', async (req: AuthenticatedRequest, res: Response) => {
     });
 
     return res.status(201).json({ success: true, message: 'Semester created successfully!', data: semester });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to create semester.' });
+  } catch (error: any) {
+    console.error('Create semester error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to create semester.' });
   }
 });
 
@@ -377,12 +437,13 @@ router.put('/semesters/:id', async (req: AuthenticatedRequest, res: Response) =>
     const semester = await Semester.findById(id);
     if (!semester) return res.status(404).json({ success: false, message: 'Semester not found' });
 
-    const { name, semesterNumber, description, price, status } = req.body;
+    const { name, semesterNumber, description, price, fee, status } = req.body;
 
     if (name) semester.name = name;
     if (semesterNumber) semester.semesterNumber = Number(semesterNumber);
     if (description !== undefined) semester.description = description;
     if (price !== undefined) semester.price = Number(price);
+    else if (fee !== undefined) semester.price = Number(fee);
     if (status) semester.status = status;
 
     await semester.save();
@@ -395,8 +456,8 @@ router.put('/semesters/:id', async (req: AuthenticatedRequest, res: Response) =>
     });
 
     return res.json({ success: true, message: 'Semester updated successfully.', data: semester });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to update semester.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to update semester.' });
   }
 });
 
@@ -433,7 +494,11 @@ router.get('/subjects', async (req, res) => {
 
     const subjects = await Subject.find(filter)
       .populate('courseId', 'name')
-      .populate('semesterId', 'name semesterNumber')
+      .populate({
+        path: 'semesterId',
+        select: 'name semesterNumber courseId',
+        populate: { path: 'courseId', select: 'name' },
+      })
       .sort({ name: 1 });
 
     return res.json({ success: true, data: subjects });
@@ -444,18 +509,38 @@ router.get('/subjects', async (req, res) => {
 
 router.post('/subjects', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { courseId, semesterId, name, code, description, price, status } = req.body;
-    if (!courseId || !semesterId || !name) {
-      return res.status(400).json({ success: false, message: 'Course ID, Semester ID, and Name are required.' });
+    const { semesterId, name, code, description, price, fee, status } = req.body;
+    if (typeof semesterId !== 'string' || !mongoose.Types.ObjectId.isValid(semesterId)) {
+      return res.status(400).json({ success: false, message: 'A valid Semester is required.' });
+    }
+    if (name !== undefined && typeof name !== 'string') {
+      return res.status(400).json({ success: false, message: 'Subject Name must be text.' });
+    }
+    if (code !== undefined && typeof code !== 'string') {
+      return res.status(400).json({ success: false, message: 'Subject Code must be text.' });
+    }
+
+    const sem = await Semester.findById(semesterId);
+    if (!sem) {
+      return res.status(400).json({ success: false, message: 'Selected Semester was not found.' });
+    }
+
+    const courseId = sem.courseId?.toString();
+    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId) || !(await Course.exists({ _id: courseId }))) {
+      return res.status(400).json({ success: false, message: 'Selected Semester is not linked to a valid Course.' });
+    }
+    const finalPrice = price !== undefined ? Number(price) : (fee !== undefined ? Number(fee) : 0);
+    if (!Number.isFinite(finalPrice) || finalPrice < 0) {
+      return res.status(400).json({ success: false, message: 'Subject Fee must be a valid non-negative number.' });
     }
 
     const subject = await Subject.create({
-      courseId: new mongoose.Types.ObjectId(courseId),
-      semesterId: new mongoose.Types.ObjectId(semesterId),
-      name,
-      code: code || `SUB-${Math.floor(100 + Math.random() * 900)}`,
+      courseId: sem.courseId,
+      semesterId: sem._id,
+      name: typeof name === 'string' ? name.trim() : '',
+      code: typeof code === 'string' && code.trim() ? code.trim() : undefined,
       description,
-      price: price ? Number(price) : 499,
+      price: finalPrice,
       status: status || 'ACTIVE',
     });
 
@@ -468,8 +553,9 @@ router.post('/subjects', async (req: AuthenticatedRequest, res: Response) => {
     });
 
     return res.status(201).json({ success: true, message: 'Subject added successfully!', data: subject });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to create subject.' });
+  } catch (error: any) {
+    console.error('Create subject error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to create subject.' });
   }
 });
 
@@ -481,13 +567,41 @@ router.put('/subjects/:id', async (req: AuthenticatedRequest, res: Response) => 
     const subject = await Subject.findById(id);
     if (!subject) return res.status(404).json({ success: false, message: 'Subject not found' });
 
-    const { name, code, description, price, status } = req.body;
+    const { semesterId, name, code, description, price, fee, status } = req.body;
 
-    if (name) subject.name = name;
-    if (code !== undefined) subject.code = code;
+    if (name !== undefined && typeof name !== 'string') {
+      return res.status(400).json({ success: false, message: 'Subject Name must be text.' });
+    }
+    if (code !== undefined && typeof code !== 'string') {
+      return res.status(400).json({ success: false, message: 'Subject Code must be text.' });
+    }
+    if (name !== undefined) subject.name = name.trim();
+    if (code !== undefined) subject.code = code.trim() || undefined;
     if (description !== undefined) subject.description = description;
-    if (price !== undefined) subject.price = Number(price);
+    const requestedPrice = price !== undefined ? price : fee;
+    if (requestedPrice !== undefined) {
+      const parsedPrice = Number(requestedPrice);
+      if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ success: false, message: 'Subject Fee must be a valid non-negative number.' });
+      }
+      subject.price = parsedPrice;
+    }
     if (status) subject.status = status;
+
+    const selectedSemesterId = semesterId ?? subject.semesterId.toString();
+    if (typeof selectedSemesterId !== 'string' || !mongoose.Types.ObjectId.isValid(selectedSemesterId)) {
+      return res.status(400).json({ success: false, message: 'A valid Semester is required.' });
+    }
+    const semester = await Semester.findById(selectedSemesterId);
+    if (!semester) {
+      return res.status(400).json({ success: false, message: 'Selected Semester was not found.' });
+    }
+    const courseId = semester.courseId?.toString();
+    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId) || !(await Course.exists({ _id: courseId }))) {
+      return res.status(400).json({ success: false, message: 'Selected Semester is not linked to a valid Course.' });
+    }
+    subject.semesterId = semester._id;
+    subject.courseId = semester.courseId;
 
     await subject.save();
 
@@ -499,8 +613,8 @@ router.put('/subjects/:id', async (req: AuthenticatedRequest, res: Response) => 
     });
 
     return res.json({ success: true, message: 'Subject updated successfully.', data: subject });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to update subject.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to update subject.' });
   }
 });
 
@@ -545,8 +659,16 @@ router.get('/materials', async (req, res) => {
 
     const materials = await Material.find(filter)
       .populate('courseId', 'name')
-      .populate('semesterId', 'name semesterNumber')
-      .populate('subjectId', 'name code')
+      .populate({
+        path: 'semesterId',
+        select: 'name semesterNumber courseId',
+        populate: { path: 'courseId', select: 'name' },
+      })
+      .populate({
+        path: 'subjectId',
+        select: 'name code semesterId',
+        populate: { path: 'semesterId', select: 'name courseId', populate: { path: 'courseId', select: 'name' } },
+      })
       .sort({ createdAt: -1 });
 
     return res.json({ success: true, data: materials });
@@ -555,25 +677,47 @@ router.get('/materials', async (req, res) => {
   }
 });
 
-router.post('/materials', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/materials', uploadMaterial.single('file'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { courseId, semesterId, subjectId, title, description, type, file, fileSize, mimeType, isPaid, price, status } = req.body;
-    if (!courseId || !semesterId || !subjectId || !title || !file) {
-      return res.status(400).json({ success: false, message: 'Course ID, Semester ID, Subject ID, Title, and File are required.' });
+    const { subjectId, title, description, type, isPaid, isSample, price, status, accessLevel } = req.body;
+
+    if (typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ success: false, message: 'Material Title is required.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Material file is required.' });
     }
 
+    const resolved = await resolveMaterialReferences(subjectId);
+    if ('error' in resolved) {
+      return res.status(400).json({ success: false, message: resolved.error });
+    }
+
+    const { courseId, semesterId, subjectId: resolvedSubjectId } = resolved.references;
+    const filePathStr = `/uploads/materials/${req.file.filename}`;
+    const fileNameStr = req.file.filename;
+    const origFileNameStr = req.file.originalname;
+    const fileSizeStr = `${(req.file.size / (1024 * 1024)).toFixed(2)} MB`;
+    const mimeTypeStr = req.file.mimetype;
+
+    const materialIsPaid = isSample === true || isSample === 'true' ? false : (isPaid !== undefined ? (isPaid === true || isPaid === 'true') : true);
+
     const material = await Material.create({
-      courseId: new mongoose.Types.ObjectId(courseId),
-      semesterId: new mongoose.Types.ObjectId(semesterId),
-      subjectId: new mongoose.Types.ObjectId(subjectId),
-      title,
-      description,
+      courseId,
+      semesterId,
+      subjectId: resolvedSubjectId,
+      title: title.trim(),
+      description: description || '',
       type: type || 'PDF',
-      file,
-      fileSize: fileSize || '2.5 MB',
-      mimeType: mimeType || 'application/pdf',
-      isPaid: isPaid ?? true,
-      price: price ? Number(price) : 199,
+      file: filePathStr,
+      filePath: filePathStr,
+      fileName: fileNameStr,
+      originalFileName: origFileNameStr,
+      fileSize: fileSizeStr,
+      mimeType: mimeTypeStr,
+      isPaid: materialIsPaid,
+      accessLevel: accessLevel || (materialIsPaid ? 'PROTECTED' : 'PUBLIC'),
+      price: price ? Number(price) : 0,
       status: status || 'ACTIVE',
     });
 
@@ -582,16 +726,17 @@ router.post('/materials', async (req: AuthenticatedRequest, res: Response) => {
       action: 'UPLOAD_MATERIAL',
       entity: 'Material',
       entityId: material._id.toString(),
-      details: { title: material.title, type: material.type },
+      details: { title: material.title, type: material.type, filePath: filePathStr },
     });
 
-    return res.status(201).json({ success: true, message: 'Material added successfully!', data: material });
+    return res.status(201).json({ success: true, message: 'Study material added successfully!', data: material });
   } catch (error: any) {
+    console.error('Upload material error:', error);
     return res.status(500).json({ success: false, message: error.message || 'Failed to upload material.' });
   }
 });
 
-router.put('/materials/:id', async (req: AuthenticatedRequest, res: Response) => {
+router.put('/materials/:id', uploadMaterial.single('file'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ success: false, message: 'Invalid ID' });
@@ -599,16 +744,40 @@ router.put('/materials/:id', async (req: AuthenticatedRequest, res: Response) =>
     const material = await Material.findById(id);
     if (!material) return res.status(404).json({ success: false, message: 'Material not found' });
 
-    const { title, description, type, file, fileSize, isPaid, price, status } = req.body;
+    const { subjectId, title, description, type, isPaid, isSample, price, status, accessLevel } = req.body;
 
-    if (title) material.title = title;
+    if (title !== undefined) {
+      if (typeof title !== 'string' || !title.trim()) {
+        return res.status(400).json({ success: false, message: 'Material Title is required.' });
+      }
+      material.title = title.trim();
+    }
     if (description !== undefined) material.description = description;
     if (type) material.type = type;
-    if (file) material.file = file;
-    if (fileSize) material.fileSize = fileSize;
-    if (isPaid !== undefined) material.isPaid = isPaid;
+    if (subjectId !== undefined) {
+      const resolved = await resolveMaterialReferences(subjectId);
+      if ('error' in resolved) {
+        return res.status(400).json({ success: false, message: resolved.error });
+      }
+      material.courseId = resolved.references.courseId;
+      material.semesterId = resolved.references.semesterId;
+      material.subjectId = resolved.references.subjectId;
+    }
+    if (isPaid !== undefined || isSample !== undefined) {
+      material.isPaid = isSample === true || isSample === 'true' ? false : (isPaid === true || isPaid === 'true');
+    }
     if (price !== undefined) material.price = Number(price);
     if (status) material.status = status;
+    if (accessLevel) material.accessLevel = accessLevel;
+
+    if (req.file) {
+      material.file = `/uploads/materials/${req.file.filename}`;
+      material.filePath = `/uploads/materials/${req.file.filename}`;
+      material.fileName = req.file.filename;
+      material.originalFileName = req.file.originalname;
+      material.fileSize = `${(req.file.size / (1024 * 1024)).toFixed(2)} MB`;
+      material.mimeType = req.file.mimetype;
+    }
 
     await material.save();
 
@@ -620,8 +789,8 @@ router.put('/materials/:id', async (req: AuthenticatedRequest, res: Response) =>
     });
 
     return res.json({ success: true, message: 'Material updated successfully.', data: material });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to update material.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to update material.' });
   }
 });
 
@@ -650,8 +819,9 @@ router.delete('/materials/:id', async (req: AuthenticatedRequest, res: Response)
 // ----------------------------------------------------
 router.get('/pricing', async (_req, res) => {
   try {
+    const rules = await Pricing.find().sort({ updatedAt: -1 });
     const [courses, semesters, subjects, materials] = await Promise.all([
-      Course.find().select('name slug price status'),
+      Course.find().select('name slug category status'),
       Semester.find().populate('courseId', 'name').select('name semesterNumber price status'),
       Subject.find().populate('semesterId', 'name').select('name code price status'),
       Material.find().select('title type price isPaid status'),
@@ -660,45 +830,100 @@ router.get('/pricing', async (_req, res) => {
     return res.json({
       success: true,
       data: {
+        rules,
         courses,
         semesters,
         subjects,
         materials,
       },
     });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to load pricing data.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: 'Failed to load pricing matrix.', error: error.message });
   }
 });
 
 router.post('/pricing', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { targetType, targetId, newPrice } = req.body;
-    if (!targetType || !targetId || newPrice === undefined) {
-      return res.status(400).json({ success: false, message: 'targetType, targetId, and newPrice are required.' });
+    const { entityType, entityId, targetType, targetId, price, offerPrice, discountPercentage, accessDurationDays, newPrice } = req.body;
+
+    const type = String(entityType || targetType || '').toUpperCase();
+    const id = entityId || targetId;
+    const rawOriginalPrice = price !== undefined ? price : newPrice;
+    const rawOfferPrice = offerPrice !== undefined ? offerPrice : (newPrice !== undefined ? newPrice : rawOriginalPrice);
+    const origPrice = Number(rawOriginalPrice);
+    const offer = Number(rawOfferPrice);
+
+    if (!['COURSE', 'SEMESTER', 'SUBJECT', 'MATERIAL'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'A valid targetType is required.' });
+    }
+    if (typeof id !== 'string' || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'A valid targetId is required.' });
+    }
+    if (
+      rawOriginalPrice === undefined || rawOriginalPrice === null || rawOriginalPrice === '' ||
+      rawOfferPrice === undefined || rawOfferPrice === null || rawOfferPrice === '' ||
+      !Number.isFinite(origPrice) || !Number.isFinite(offer) || origPrice < 0 || offer < 0
+    ) {
+      return res.status(400).json({ success: false, message: 'A valid non-negative newPrice is required.' });
     }
 
-    const priceNum = Number(newPrice);
+    const objId = new mongoose.Types.ObjectId(id);
+    const targetExists = type === 'COURSE'
+      ? await Course.exists({ _id: objId })
+      : type === 'SEMESTER'
+        ? await Semester.exists({ _id: objId })
+        : type === 'SUBJECT'
+          ? await Subject.exists({ _id: objId })
+          : await Material.exists({ _id: objId });
+    if (!targetExists) {
+      return res.status(400).json({ success: false, message: 'Selected pricing target was not found.' });
+    }
 
-    if (targetType === 'SEMESTER') {
-      await Semester.findByIdAndUpdate(targetId, { price: priceNum });
-    } else if (targetType === 'SUBJECT') {
-      await Subject.findByIdAndUpdate(targetId, { price: priceNum });
-    } else if (targetType === 'MATERIAL') {
-      await Material.findByIdAndUpdate(targetId, { price: priceNum });
+    const calculatedDiscount = origPrice > offer ? Math.round(((origPrice - offer) / origPrice) * 100) : 0;
+    const discPercentage = discountPercentage !== undefined ? Number(discountPercentage) : calculatedDiscount;
+    if (!Number.isFinite(discPercentage) || discPercentage < 0 || discPercentage > 100) {
+      return res.status(400).json({ success: false, message: 'Discount percentage must be between 0 and 100.' });
+    }
+
+    // Upsert Pricing Rule
+    const pricingRule = await Pricing.findOneAndUpdate(
+      { entityType: type, entityId: objId },
+      {
+        entityType: type,
+        entityId: objId,
+        price: origPrice,
+        offerPrice: offer,
+        discountPercentage: discPercentage,
+        accessDurationDays: accessDurationDays ? Number(accessDurationDays) : 365,
+      },
+      { upsert: true, new: true }
+    );
+
+    // Synchronize price field directly on target entity
+    if (type === 'SEMESTER') {
+      await Semester.findByIdAndUpdate(objId, { price: offer });
+    } else if (type === 'SUBJECT') {
+      await Subject.findByIdAndUpdate(objId, { price: offer });
+    } else if (type === 'MATERIAL') {
+      await Material.findByIdAndUpdate(objId, { price: offer });
     }
 
     await logAuditAction({
       adminId: req.user?.id,
       action: 'UPDATE_PRICING',
-      entity: targetType,
-      entityId: targetId,
-      details: { newPrice: priceNum },
+      entity: type,
+      entityId: id,
+      details: { price: origPrice, offerPrice: offer, discountPercentage: discPercentage },
     });
 
-    return res.json({ success: true, message: 'Price updated successfully.' });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to update pricing.' });
+    return res.json({
+      success: true,
+      message: 'Pricing matrix updated successfully!',
+      data: pricingRule,
+    });
+  } catch (error: any) {
+    console.error('Update pricing matrix error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update pricing matrix.', error: error.message });
   }
 });
 
@@ -1099,6 +1324,32 @@ router.post('/payments/:id/verify', async (req: AuthenticatedRequest, res: Respo
         details: { utrNumber: payment.utrNumber, amount: payment.amount, userId: order.userId },
       });
 
+      // Send student payment approval email (non-blocking)
+      setImmediate(async () => {
+        try {
+          const studentUser = await User.findById(order.userId);
+          if (studentUser) {
+            let courseName = 'MLT Comprehensive Program';
+            if (order.courseId) {
+              const crs = await Course.findById(order.courseId);
+              if (crs) courseName = crs.name;
+            }
+            await sendStudentPaymentApprovalEmail({
+              studentName: studentUser.name || 'Student',
+              studentEmail: studentUser.email,
+              courseName,
+              amount: payment.amount,
+              orderId: order._id.toString(),
+            });
+          }
+        } catch (emailErr) {
+          console.error('Failed to send payment approval email to student:', emailErr);
+        }
+      });
+
+      // Trigger standard enrollment notifications as well
+      triggerEnrollmentNotifications(order._id.toString());
+
       return res.json({
         success: true,
         message: 'Payment APPROVED successfully! Access to notes granted to the student.',
@@ -1124,6 +1375,30 @@ router.post('/payments/:id/verify', async (req: AuthenticatedRequest, res: Respo
         entity: 'Payment',
         entityId: payment._id.toString(),
         details: { reason: payment.rejectionReason, utrNumber: payment.utrNumber },
+      });
+
+      // Send student payment rejection email (non-blocking)
+      setImmediate(async () => {
+        try {
+          const studentUser = await User.findById(order.userId);
+          if (studentUser) {
+            let courseName = 'MLT Comprehensive Program';
+            if (order.courseId) {
+              const crs = await Course.findById(order.courseId);
+              if (crs) courseName = crs.name;
+            }
+            await sendStudentPaymentRejectionEmail({
+              studentName: studentUser.name || 'Student',
+              studentEmail: studentUser.email,
+              courseName,
+              amount: payment.amount,
+              orderId: order._id.toString(),
+              reason: payment.rejectionReason || 'Payment verification failed by admin',
+            });
+          }
+        } catch (emailErr) {
+          console.error('Failed to send payment rejection email to student:', emailErr);
+        }
       });
 
       return res.json({
@@ -1189,6 +1464,46 @@ router.post('/settings/upi', async (req: AuthenticatedRequest, res: Response) =>
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: 'Failed to update UPI settings.' });
+  }
+});
+
+// Notifications Endpoints
+router.get('/notifications', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const notifications = await Notification.find()
+      .sort({ createdAt: -1 })
+      .limit(30);
+
+    const unreadCount = await Notification.countDocuments({ isRead: false });
+
+    return res.json({
+      success: true,
+      data: {
+        notifications,
+        unreadCount,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch admin notifications.' });
+  }
+});
+
+router.patch('/notifications/:id/read', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    await Notification.findByIdAndUpdate(id, { isRead: true });
+    return res.json({ success: true, message: 'Notification marked as read.' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to update notification.' });
+  }
+});
+
+router.patch('/notifications/mark-all-read', async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    await Notification.updateMany({ isRead: false }, { isRead: true });
+    return res.json({ success: true, message: 'All notifications marked as read.' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to mark notifications as read.' });
   }
 });
 

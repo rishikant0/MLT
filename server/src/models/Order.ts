@@ -25,6 +25,12 @@ export interface IOrder extends Document {
   paymentMethod: 'UPI_MANUAL' | 'RAZORPAY';
   status: OrderStatus;
   razorpayOrderId?: string;
+  emailNotification?: {
+    adminSent?: boolean;
+    studentSent?: boolean;
+    adminSentAt?: Date;
+    studentSentAt?: Date;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,6 +53,12 @@ const OrderSchema = new Schema<IOrder>(
       index: true,
     },
     razorpayOrderId: { type: String, index: true },
+    emailNotification: {
+      adminSent: { type: Boolean, default: false },
+      studentSent: { type: Boolean, default: false },
+      adminSentAt: { type: Date },
+      studentSentAt: { type: Date },
+    },
   },
   { timestamps: true }
 );

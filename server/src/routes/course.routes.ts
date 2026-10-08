@@ -32,7 +32,8 @@ router.get('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Res
         const semesterCount = semesters.length;
 
         const prices = semesters.map((s) => s.price).filter((p) => p > 0);
-        const startingPrice = prices.length > 0 ? Math.min(...prices) : 1999;
+        const startingPrice = course.offerPrice || course.price || (prices.length > 0 ? Math.min(...prices) : 0);
+        const origPrice = course.price || (startingPrice > 0 ? Math.round(startingPrice * 1.2) : 0);
 
         return {
           _id: course._id.toString(),
@@ -46,10 +47,12 @@ router.get('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Res
           eligibility: course.eligibility,
           careerOpportunities: course.careerOpportunities,
           thumbnail: course.thumbnail,
+          price: course.price || 0,
+          offerPrice: course.offerPrice || 0,
           status: course.status,
           semesterCount,
           startingPrice,
-          originalPrice: Math.round(startingPrice * 1.3),
+          originalPrice: origPrice,
         };
       })
     );
@@ -92,7 +95,7 @@ router.get('/:slug', optionalAuthenticate, async (req: AuthenticatedRequest, res
               name: subj.name,
               code: subj.code,
               description: subj.description,
-              price: subj.price || 499,
+              price: subj.price || 0,
               status: subj.status,
               materials,
             };
@@ -105,16 +108,17 @@ router.get('/:slug', optionalAuthenticate, async (req: AuthenticatedRequest, res
           name: sem.name,
           semesterNumber: sem.semesterNumber,
           description: sem.description,
-          price: sem.price || 2999,
+          price: sem.price || 0,
           status: sem.status,
           subjects: subjectsWithMaterials,
         };
       })
     );
 
-    // Calculate full course price from semesters sum or default
+    // Calculate full course price from course document or semesters sum
     const totalSemestersPrice = semestersWithSubjects.reduce((sum, s) => sum + (s.price || 0), 0);
-    const fullCoursePrice = totalSemestersPrice > 0 ? Math.round(totalSemestersPrice * 0.85) : 8999;
+    const fullCoursePrice = course.offerPrice || course.price || (totalSemestersPrice > 0 ? Math.round(totalSemestersPrice * 0.85) : 0);
+    const origPrice = course.price || (fullCoursePrice > 0 ? Math.round(fullCoursePrice * 1.25) : 0);
 
     let userEntitlements: any[] = [];
     if (req.user && req.user.id) {
