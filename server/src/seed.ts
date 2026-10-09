@@ -34,7 +34,7 @@ const INITIAL_COURSES = [
 async function seed() {
   await connectDB();
 
-  console.log('🌱 Starting MongoDB database seeding for MLT Learning Zone...');
+  console.log('🌱 Starting MongoDB database seeding for Allied Learning Zone...');
 
   // Clear existing collections
   await Promise.all([
@@ -49,15 +49,15 @@ async function seed() {
   console.log('🧹 Cleaned existing database records.');
 
   // 1. Seed Demo Admin & Student Users
-  const rawAdminEmail = process.env.ADMIN_EMAIL || 'rishikant.aws27@gmail.com';
-  const rawAdminPassword = process.env.ADMIN_PASSWORD || 'Admin@12345';
+  const rawAdminEmail = process.env.ADMIN_EMAIL || 'Alliedlearningzone@gmail.com';
+  const rawAdminPassword = process.env.ADMIN_PASSWORD || 'Allied@5995';
   const adminPassword = await bcrypt.hash(rawAdminPassword, 10);
   const studentPassword = await bcrypt.hash('Student@12345', 10);
 
   const admin = await User.create({
     name: 'Academic Administrator',
     email: rawAdminEmail.toLowerCase().trim(),
-    phone: '+919876543210',
+    phone: '+916206465995',
     password: adminPassword,
     role: 'ADMIN',
     isVerified: true,
@@ -66,7 +66,7 @@ async function seed() {
 
   const student = await User.create({
     name: 'Rahul Sharma',
-    email: 'student@mltlearningzone.com',
+    email: 'student@alliedlearningzone.com',
     phone: '+919876543211',
     password: studentPassword,
     role: 'STUDENT',
@@ -89,6 +89,8 @@ async function seed() {
       eligibility: cData.eligibility,
       shortDescription: `Professional ${cData.name} degree curriculum notes, MCQs, and exam question banks.`,
       description: `Comprehensive academic prep program for ${cData.name} students containing verified medical notes, handwritten summaries, chapterwise MCQs, and previous year university exam questions.`,
+      price: 2999,
+      offerPrice: 2499,
       careerOpportunities: [
         'Government & Private Hospitals',
         'Clinical Diagnostic Centers',
@@ -103,107 +105,107 @@ async function seed() {
 
   console.log(`📚 ${createdCourses.length} courses seeded successfully.`);
 
-  // 3. Seed Semesters, Subjects, and Materials for BMLS and DMLT
-  const bmlsCourse = createdCourses.find((c) => c.slug === 'bmls') || createdCourses[0];
+  // 3. Seed Semesters, Subjects, and Materials for major courses
+  const coursesToSeed = [
+    { slug: 'anm', code: 'ANM' },
+    { slug: 'bmls', code: 'BMLS' },
+    { slug: 'dmlt', code: 'DMLT' },
+    { slug: 'b-pharma', code: 'BPH' },
+    { slug: 'd-pharma', code: 'DPH' },
+    { slug: 'gnm', code: 'GNM' },
+    { slug: 'b-sc-nursing', code: 'BSN' },
+  ];
 
-  const sem1 = await Semester.create({
-    courseId: bmlsCourse._id,
-    name: 'Semester 1',
-    semesterNumber: 1,
-    description: 'Foundational Human Anatomy, Physiology, and Laboratory Instruments',
-    price: 2999,
-    status: 'ACTIVE',
-  });
+  for (const cInfo of coursesToSeed) {
+    const courseObj = createdCourses.find((c) => c.slug === cInfo.slug);
+    if (!courseObj) continue;
 
-  const sem2 = await Semester.create({
-    courseId: bmlsCourse._id,
-    name: 'Semester 2',
-    semesterNumber: 2,
-    description: 'Clinical Biochemistry and General Microbiology',
-    price: 2999,
-    status: 'ACTIVE',
-  });
-
-  // Subjects for Sem 1
-  const subjAnatomy = await Subject.create({
-    courseId: bmlsCourse._id,
-    semesterId: sem1._id,
-    name: 'Anatomy & Physiology',
-    code: 'BMLS-101',
-    description: 'Complete Human Organ Systems, Tissue Histology, and Anatomical Landmarks',
-    price: 499,
-    status: 'ACTIVE',
-  });
-
-  const subjBiochem = await Subject.create({
-    courseId: bmlsCourse._id,
-    semesterId: sem1._id,
-    name: 'Biochemistry & Hematology',
-    code: 'BMLS-102',
-    description: 'Blood Cell Physiology, Hemoglobin Estimations, and Biomolecules',
-    price: 499,
-    status: 'ACTIVE',
-  });
-
-  // Materials for Anatomy
-  await Material.create([
-    {
-      courseId: bmlsCourse._id,
-      semesterId: sem1._id,
-      subjectId: subjAnatomy._id,
-      title: 'Human Cardiovascular System Detailed Notes',
-      description: 'Comprehensive chapterwise PDF notes covering Heart Anatomy, Blood Vessels, and Cardiac Cycle.',
-      type: 'PDF',
-      file: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      fileSize: '4.8 MB',
-      mimeType: 'application/pdf',
-      isPaid: true,
-      price: 199,
+    const sem1 = await Semester.create({
+      courseId: courseObj._id,
+      name: 'Semester 1',
+      semesterNumber: 1,
+      description: `Foundational ${courseObj.name} Semester 1 Curriculum`,
+      price: 2499,
       status: 'ACTIVE',
-    },
-    {
-      courseId: bmlsCourse._id,
-      semesterId: sem1._id,
-      subjectId: subjAnatomy._id,
-      title: 'Anatomy Topper Handwritten Notes',
-      description: 'High-yield handwritten diagrams and mnemonics for rapid revision before exams.',
-      type: 'HANDWRITTEN_NOTES',
-      file: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      fileSize: '6.2 MB',
-      mimeType: 'application/pdf',
-      isPaid: true,
-      price: 199,
+    });
+
+    const sem2 = await Semester.create({
+      courseId: courseObj._id,
+      name: 'Semester 2',
+      semesterNumber: 2,
+      description: `Advanced ${courseObj.name} Semester 2 Curriculum`,
+      price: 2499,
       status: 'ACTIVE',
-    },
-    {
-      courseId: bmlsCourse._id,
+    });
+
+    const subj1 = await Subject.create({
+      courseId: courseObj._id,
       semesterId: sem1._id,
-      subjectId: subjAnatomy._id,
-      title: '500+ High Yield Anatomy MCQ Question Bank',
-      description: 'Topicwise Multiple Choice Questions with complete explanations and rationale.',
-      type: 'MCQ',
-      file: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      fileSize: '3.1 MB',
-      mimeType: 'application/pdf',
-      isPaid: false, // Free sample
-      price: 0,
+      name: `${courseObj.name} Anatomy & Fundamentals`,
+      code: `${cInfo.code}-101`,
+      description: 'Core concepts, tissue anatomy, and fundamental procedures',
+      price: 499,
       status: 'ACTIVE',
-    },
-    {
-      courseId: bmlsCourse._id,
+    });
+
+    const subj2 = await Subject.create({
+      courseId: courseObj._id,
       semesterId: sem1._id,
-      subjectId: subjAnatomy._id,
-      title: '5 Years Solved Previous University Question Papers',
-      description: 'Solved long-answer questions and short notes from previous 5 years exams.',
-      type: 'PREVIOUS_YEAR',
-      file: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      fileSize: '5.5 MB',
-      mimeType: 'application/pdf',
-      isPaid: true,
-      price: 199,
+      name: `${courseObj.name} Physiology & Clinical Practice`,
+      code: `${cInfo.code}-102`,
+      description: 'System physiology, clinical pathology, and lab protocols',
+      price: 499,
       status: 'ACTIVE',
-    },
-  ]);
+    });
+
+    await Material.create([
+      {
+        courseId: courseObj._id,
+        semesterId: sem1._id,
+        subjectId: subj1._id,
+        title: `${courseObj.name} Semester 1 Detailed Study Notes`,
+        description: 'Comprehensive chapterwise PDF notes covering core topics.',
+        type: 'PDF',
+        file: '/uploads/materials/sample_notes.pdf',
+        filePath: '/uploads/materials/sample_notes.pdf',
+        fileSize: '4.5 MB',
+        mimeType: 'application/pdf',
+        isPaid: true,
+        price: 199,
+        status: 'ACTIVE',
+      },
+      {
+        courseId: courseObj._id,
+        semesterId: sem1._id,
+        subjectId: subj1._id,
+        title: `${courseObj.name} Topper Handwritten Notes`,
+        description: 'High-yield handwritten diagrams and mnemonics.',
+        type: 'HANDWRITTEN_NOTES',
+        file: '/uploads/materials/sample_handwritten.pdf',
+        filePath: '/uploads/materials/sample_handwritten.pdf',
+        fileSize: '6.1 MB',
+        mimeType: 'application/pdf',
+        isPaid: true,
+        price: 199,
+        status: 'ACTIVE',
+      },
+      {
+        courseId: courseObj._id,
+        semesterId: sem1._id,
+        subjectId: subj1._id,
+        title: `${courseObj.name} Free Sample Practice MCQs`,
+        description: 'Free sample questions for self-assessment.',
+        type: 'MCQ',
+        file: '/uploads/materials/sample_mcq.pdf',
+        filePath: '/uploads/materials/sample_mcq.pdf',
+        fileSize: '2.1 MB',
+        mimeType: 'application/pdf',
+        isPaid: false,
+        price: 0,
+        status: 'ACTIVE',
+      },
+    ]);
+  }
 
   console.log('📖 Sample Semesters, Subjects, and Materials created.');
 

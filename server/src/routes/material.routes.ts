@@ -52,7 +52,7 @@ router.get('/structure', optionalAuthenticate, async (req: AuthenticatedRequest,
             const subjectsData = await Promise.all(
               subjects.map(async (subj) => {
                 const materials = await Material.find({ subjectId: subj._id, status: 'ACTIVE' })
-                  .select('title description type isPaid price fileSize mimeType createdAt')
+                  .select('title description type isPaid isSample accessLevel price fileSize mimeType createdAt file filePath')
                   .sort({ createdAt: -1 });
 
                 return {
@@ -109,7 +109,7 @@ router.get('/structure', optionalAuthenticate, async (req: AuthenticatedRequest,
   }
 });
 
-// Stream / view route
+// Stream / view route: GET /api/materials/stream
 router.get('/stream', async (req, res) => {
   try {
     const { materialId, token } = req.query;
@@ -118,8 +118,8 @@ router.get('/stream', async (req, res) => {
       return res.status(400).send('Missing security parameters');
     }
 
-    const isValid = verifySignedMaterialToken(String(token), String(materialId));
-    if (!isValid) {
+    const verification = verifySignedMaterialToken(String(token), String(materialId));
+    if (!verification.valid || !verification.userId) {
       return res.status(403).send('Forbidden: Token invalid or expired');
     }
 
@@ -127,6 +127,27 @@ router.get('/stream', async (req, res) => {
 
     if (!material) {
       return res.status(404).send('Material not found');
+    }
+
+    const isFreeSample = !material.isPaid || material.isSample || material.accessLevel === 'PUBLIC';
+    if (!isFreeSample) {
+      const entitlementCheck = await checkStudentEntitlementForMaterial(verification.userId, String(materialId));
+      if (!entitlementCheck.hasAccess) {
+        return res.status(403).send('Forbidden: Active purchase entitlement required to access this study material.');
+      }
+    }
+
+    let fileAbsolutePath = '';
+    const fileRef = material.filePath || material.file;
+    if (fileRef && (fileRef.startsWith('/uploads/') || fileRef.startsWith('uploads/'))) {
+      const cleanPath = fileRef.startsWith('/') ? fileRef.slice(1) : fileRef;
+      fileAbsolutePath = path.join(process.cwd(), cleanPath);
+    }
+
+    if (fileAbsolutePath && fs.existsSync(fileAbsolutePath)) {
+      res.setHeader('Content-Type', material.mimeType || 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${path.basename(fileAbsolutePath)}"`);
+      return res.sendFile(fileAbsolutePath);
     }
 
     // Dynamic clean PDF generator stream response for medical notes
@@ -140,7 +161,7 @@ router.get('/stream', async (req, res) => {
 BT
 /F1 18 Tf
 50 720 Td
-(MLT LEARNING ZONE - VERIFIED STUDY MATERIAL) Tj
+(ALLIED LEARNING ZONE - VERIFIED STUDY MATERIAL) Tj
 0 -40 Td
 /F1 12 Tf
 (Title: ${material.title.replace(/[()]/g, '')}) Tj
@@ -214,15 +235,17 @@ router.get('/:id/access', authenticate, async (req: AuthenticatedRequest, res: R
       return res.status(404).json({ success: false, message: 'Study material not found.' });
     }
 
-    // Check entitlement unless free
-    const entitlementCheck = await checkStudentEntitlementForMaterial(userId, materialId);
-
-    if (!entitlementCheck.hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: entitlementCheck.reason || 'Access denied. Purchase required to unlock this study material.',
-        requiresPurchase: true,
-      });
+    // Check entitlement unless free sample
+    const isFreeSample = !material.isPaid || material.isSample || material.accessLevel === 'PUBLIC';
+    if (!isFreeSample) {
+      const entitlementCheck = await checkStudentEntitlementForMaterial(userId, materialId);
+      if (!entitlementCheck.hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: entitlementCheck.reason || 'Access denied. Purchase required to unlock this study material.',
+          requiresPurchase: true,
+        });
+      }
     }
 
     // Generate signed URL
@@ -295,7 +318,7 @@ router.get('/:id/download', authenticate, async (req: AuthenticatedRequest, res:
 BT
 /F1 18 Tf
 50 720 Td
-(MLT LEARNING ZONE - VERIFIED STUDY MATERIAL) Tj
+(ALLIED LEARNING ZONE - VERIFIED STUDY MATERIAL) Tj
 0 -40 Td
 /F1 12 Tf
 (Title: ${material.title.replace(/[()]/g, '')}) Tj

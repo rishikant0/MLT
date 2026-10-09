@@ -32,7 +32,7 @@ router.post('/', async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Thank you for contacting MLT Learning Zone! Our academic counselor will contact you shortly.',
+      message: 'Thank you for contacting Allied Learning Zone! Our academic counselor will contact you shortly.',
       data: enquiry,
     });
   } catch (error) {

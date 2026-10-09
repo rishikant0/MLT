@@ -20,7 +20,7 @@ const createTransporter = () => {
   const host = process.env.EMAIL_HOST || process.env.SMTP_HOST || 'smtp.gmail.com';
   const port = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || '587', 10);
   const user = process.env.EMAIL_USER || process.env.SMTP_USER || '';
-  const pass = process.env.EMAIL_PASSWORD || process.env.SMTP_PASSWORD || '';
+  const pass = process.env.EMAIL_PASSWORD || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
 
   return nodemailer.createTransport({
     host,
@@ -28,17 +28,17 @@ const createTransporter = () => {
     secure: port === 465, // true for 465, false for other ports
     auth: user && pass ? { user, pass } : undefined,
     tls: {
-      rejectUnauthorized: false, // help with self-signed certificates in dev environments
+      rejectUnauthorized: false,
     },
   });
 };
 
 const getFromAddress = () => {
-  return process.env.EMAIL_FROM || 'MLT Learning Zone <rishikant.aws27@gmail.com>';
+  return process.env.EMAIL_FROM || 'Allied Learning Zone <Alliedlearningzone@gmail.com>';
 };
 
 const getAdminEmail = () => {
-  return process.env.ADMIN_EMAIL || 'rishikant.aws27@gmail.com';
+  return process.env.ADMIN_EMAIL || process.env.OFFICIAL_EMAIL || 'Alliedlearningzone@gmail.com';
 };
 
 /**
@@ -70,7 +70,7 @@ export async function sendPasswordResetOTP(toEmail: string, otp: string, recipie
       <div class="container">
         <div class="header">
           <h2 style="color: #ffffff; margin: 0;">🔐 Admin Security Portal</h2>
-          <p class="title">MLT Learning Zone</p>
+          <p class="title">Allied Learning Zone</p>
           <p class="subtitle">Administrator Password Reset Verification Code</p>
         </div>
         <div class="body">
@@ -86,7 +86,7 @@ export async function sendPasswordResetOTP(toEmail: string, otp: string, recipie
           <p style="font-size: 12px; color: #94a3b8;">If you did not initiate this request, please ignore this email or notify your system security administrator immediately. Do not share this OTP with anyone.</p>
         </div>
         <div class="footer">
-          &copy; ${new Date().getFullYear()} MLT Learning Zone Admin Management System. All rights reserved.
+          &copy; ${new Date().getFullYear()} Allied Learning Zone Admin Management System. All rights reserved.
         </div>
       </div>
     </body>
@@ -95,14 +95,14 @@ export async function sendPasswordResetOTP(toEmail: string, otp: string, recipie
 
   const textContent = `Hello ${recipientName},
 
-Your MLT Learning Zone Admin password reset verification code is: ${otp}
+Your Allied Learning Zone Admin password reset verification code is: ${otp}
 
 This code is valid for 10 minutes.
+
 If you did not request this code, please ignore this message.
 
-MLT Learning Zone Admin Management System`;
+Allied Learning Zone Admin Management System`;
 
-  // Always print to server console for local development testing & auditing
   console.log(`\n============================================================`);
   console.log(`🔐 [ADMIN PASSWORD RESET OTP GENERATED]`);
   console.log(`Recipient: ${toEmail}`);
@@ -112,17 +112,17 @@ MLT Learning Zone Admin Management System`;
 
   try {
     const user = process.env.EMAIL_USER || process.env.SMTP_USER;
-    const pass = process.env.EMAIL_PASSWORD || process.env.SMTP_PASSWORD;
+    const pass = process.env.EMAIL_PASSWORD || process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
 
     if (!user || !pass) {
-      console.warn('⚠️ SMTP Credentials (EMAIL_USER & EMAIL_PASSWORD) not set in server/.env. OTP displayed in server log above for testing.');
+      console.warn('⚠️ SMTP Credentials not fully set in server/.env. OTP displayed in server log above for testing.');
       return true;
     }
 
     const info = await transporter.sendMail({
       from,
       to: toEmail,
-      subject: '🔐 Admin Password Reset OTP - MLT Learning Zone',
+      subject: '🔐 Admin Password Reset OTP - Allied Learning Zone',
       text: textContent,
       html: htmlContent,
     });
@@ -130,7 +130,6 @@ MLT Learning Zone Admin Management System`;
     return true;
   } catch (error) {
     console.error('Failed to send password reset OTP email via SMTP:', error);
-    console.log(`💡 DEV TIP: You can use the OTP printed above (${otp}) to test the reset flow!`);
     return false;
   }
 }
@@ -165,10 +164,10 @@ export async function sendAdminEnrollmentNotification(data: EnrollmentEmailData)
       <div class="container">
         <div class="header">
           <h2>🎓 New Course Enrollment Notification</h2>
-          <p style="margin: 4px 0 0 0; font-size: 12px; color: #94a3b8;">MLT Learning Zone Admin Management System</p>
+          <p style="margin: 4px 0 0 0; font-size: 12px; color: #94a3b8;">Allied Learning Zone Admin Management System</p>
         </div>
         <p>Hello Admin,</p>
-        <p>A new student has enrolled in a course on MLT Learning Zone.</p>
+        <p>A new student has enrolled in a course on Allied Learning Zone.</p>
         
         <h3 style="font-size: 15px; color: #0f172a; margin-top: 20px;">Student & Enrollment Details:</h3>
         <table class="details-table">
@@ -190,7 +189,7 @@ export async function sendAdminEnrollmentNotification(data: EnrollmentEmailData)
         </div>
 
         <div class="footer">
-          Regards,<br><strong>MLT Learning Zone Admin Management System</strong>
+          Regards,<br><strong>Allied Learning Zone Admin Management System</strong>
         </div>
       </div>
     </body>
@@ -199,7 +198,7 @@ export async function sendAdminEnrollmentNotification(data: EnrollmentEmailData)
 
   const textContent = `Hello Admin,
 
-A new student has enrolled in a course on MLT Learning Zone.
+A new student has enrolled in a course on Allied Learning Zone.
 
 Student Details:
 -------------------------
@@ -218,14 +217,13 @@ Enrollment Date: ${data.date}
 Please log in to Admin Management Studio to review the enrollment and payment.
 
 Regards,
-MLT Learning Zone
-Admin Management System`;
+Allied Learning Zone Admin Management System`;
 
   try {
     const info = await transporter.sendMail({
       from,
       to: adminEmail,
-      subject: '🎓 New Course Enrollment - MLT Learning Zone',
+      subject: '🎓 New Course Enrollment - Allied Learning Zone',
       text: textContent,
       html: htmlContent,
     });
@@ -267,10 +265,10 @@ export async function sendStudentEnrollmentConfirmation(data: EnrollmentEmailDat
       <div class="container">
         <div class="header">
           <h1>🎓 Enrollment Confirmed</h1>
-          <p style="margin: 6px 0 0 0; font-size: 13px; color: #cbd5e1;">Welcome to MLT Learning Zone!</p>
+          <p style="margin: 6px 0 0 0; font-size: 13px; color: #cbd5e1;">Welcome to Allied Learning Zone!</p>
         </div>
         <p>Hello <strong>${data.studentName}</strong>,</p>
-        <p>Congratulations! 🎉 Your enrollment/purchase has been successfully submitted on MLT Learning Zone.</p>
+        <p>Congratulations! 🎉 Your enrollment/purchase has been successfully submitted on Allied Learning Zone.</p>
         
         <h3 style="font-size: 15px; color: #0f172a; margin-top: 24px;">Course & Payment Details:</h3>
         <table class="details-table">
@@ -284,14 +282,15 @@ export async function sendStudentEnrollmentConfirmation(data: EnrollmentEmailDat
           <tr><td class="label">Date</td><td class="value">${data.date}</td></tr>
         </table>
 
-        <p style="font-size: 13px; color: #475569;">Your enrollment is active / being processed. You can log in to your MLT Learning Zone account at any time to access your study materials.</p>
+        <p style="font-size: 13px; color: #475569;">Your enrollment is active / being processed. You can log in to your Allied Learning Zone account at any time to access your study materials.</p>
 
         <div style="text-align: center; margin-top: 24px;">
-          <a href="${clientUrl}/login" class="btn">Login to MLT Learning Zone</a>
+          <a href="${clientUrl}/login" class="btn">Login to Allied Learning Zone</a>
         </div>
 
         <div class="footer">
-          Regards,<br><strong>MLT Learning Zone Team</strong>
+          Regards,<br><strong>Allied Learning Zone Team</strong><br>
+          Email: Alliedlearningzone@gmail.com | Phone: +91 62064 65995
         </div>
       </div>
     </body>
@@ -302,7 +301,7 @@ export async function sendStudentEnrollmentConfirmation(data: EnrollmentEmailDat
 
 Congratulations! 🎉
 
-Your enrollment/purchase has been successfully submitted on MLT Learning Zone.
+Your enrollment/purchase has been successfully submitted on Allied Learning Zone.
 
 Course Details:
 -------------------------
@@ -317,17 +316,18 @@ Date: ${data.date}
 
 Your enrollment is now being processed/reviewed.
 
-You can log in to your MLT Learning Zone account to check your enrollment status:
+You can log in to your Allied Learning Zone account to check your enrollment status:
 ${clientUrl}/login
 
 Regards,
-MLT Learning Zone Team`;
+Allied Learning Zone Team
+Email: Alliedlearningzone@gmail.com | Phone: +91 62064 65995`;
 
   try {
     const info = await transporter.sendMail({
       from,
       to: data.studentEmail,
-      subject: '🎓 Enrollment Confirmed - MLT Learning Zone',
+      subject: '🎓 Enrollment Confirmed - Allied Learning Zone',
       text: textContent,
       html: htmlContent,
     });
@@ -344,7 +344,6 @@ MLT Learning Zone Team`;
  * Safely fetches order, student, item details from DB and dispatches notifications.
  */
 export async function triggerEnrollmentNotifications(orderId: string): Promise<void> {
-  // Use setImmediate / async to ensure non-blocking operation
   setImmediate(async () => {
     try {
       const order = await Order.findById(orderId);
@@ -361,7 +360,7 @@ export async function triggerEnrollmentNotifications(orderId: string): Promise<v
 
       const payment = await Payment.findOne({ orderId: order._id });
 
-      let courseName = 'MLT Comprehensive Program';
+      let courseName = 'Allied Healthcare Program';
       let semesterName = 'N/A';
       let subjectName = 'N/A';
 
@@ -487,7 +486,7 @@ export async function sendStudentPaymentApprovalEmail(data: {
       <div class="container">
         <div class="header">
           <h1>🎉 Access Approved!</h1>
-          <p style="margin: 6px 0 0 0; font-size: 13px;">MLT Learning Zone Course Access Granted</p>
+          <p style="margin: 6px 0 0 0; font-size: 13px;">Allied Learning Zone Course Access Granted</p>
         </div>
         <p>Hello <strong>${data.studentName}</strong>,</p>
         <p>Great news! Your payment of <strong>₹${data.amount}</strong> for <strong>${data.courseName}</strong> has been verified and approved by the admin team.</p>
@@ -502,11 +501,12 @@ export async function sendStudentPaymentApprovalEmail(data: {
         <p>You now have full access to study materials, PDF notes, and lecture resources for this course.</p>
 
         <div style="text-align: center; margin-top: 24px;">
-          <a href="${clientUrl}/dashboard" class="btn">Access Your Study Notes Now</a>
+          <a href="${clientUrl}/student/dashboard" class="btn">Access Your Study Notes Now</a>
         </div>
 
         <div class="footer">
-          Regards,<br><strong>MLT Learning Zone Team</strong>
+          Regards,<br><strong>Allied Learning Zone Team</strong><br>
+          Email: Alliedlearningzone@gmail.com | Phone: +91 62064 65995
         </div>
       </div>
     </body>
@@ -515,7 +515,7 @@ export async function sendStudentPaymentApprovalEmail(data: {
 
   const textContent = `Hello ${data.studentName},
 
-Your MLT Learning Zone Course Access Has Been Approved!
+Your Allied Learning Zone Course Access Has Been Approved!
 
 Course Name: ${data.courseName}
 Amount Paid: ₹${data.amount}
@@ -525,16 +525,17 @@ Order ID: ${data.orderId}
 You now have full access to study materials, PDF notes, and lecture resources.
 
 Log in to access your notes:
-${clientUrl}/dashboard
+${clientUrl}/student/dashboard
 
 Regards,
-MLT Learning Zone Team`;
+Allied Learning Zone Team
+Email: Alliedlearningzone@gmail.com | Phone: +91 62064 65995`;
 
   try {
     const info = await transporter.sendMail({
       from,
       to: data.studentEmail,
-      subject: 'Your MLT Learning Zone Course Access Has Been Approved',
+      subject: 'Your Allied Learning Zone Course Access Has Been Approved',
       text: textContent,
       html: htmlContent,
     });
@@ -583,7 +584,7 @@ export async function sendStudentPaymentRejectionEmail(data: {
       <div class="container">
         <div class="header">
           <h1>⚠️ Action Required</h1>
-          <p style="margin: 6px 0 0 0; font-size: 13px;">MLT Learning Zone Payment Verification</p>
+          <p style="margin: 6px 0 0 0; font-size: 13px;">Allied Learning Zone Payment Verification</p>
         </div>
         <p>Hello <strong>${data.studentName}</strong>,</p>
         <p>Your submitted payment for <strong>${data.courseName}</strong> requires attention and could not be verified.</p>
@@ -601,7 +602,8 @@ export async function sendStudentPaymentRejectionEmail(data: {
         </div>
 
         <div class="footer">
-          Regards,<br><strong>MLT Learning Zone Team</strong>
+          Regards,<br><strong>Allied Learning Zone Team</strong><br>
+          Email: Alliedlearningzone@gmail.com | Phone: +91 62064 65995
         </div>
       </div>
     </body>
@@ -610,7 +612,7 @@ export async function sendStudentPaymentRejectionEmail(data: {
 
   const textContent = `Hello ${data.studentName},
 
-Your MLT Learning Zone Payment Requires Attention.
+Your Allied Learning Zone Payment Requires Attention.
 
 Course Name: ${data.courseName}
 Order ID: ${data.orderId}
@@ -622,13 +624,14 @@ Contact Support:
 ${clientUrl}/contact
 
 Regards,
-MLT Learning Zone Team`;
+Allied Learning Zone Team
+Email: Alliedlearningzone@gmail.com | Phone: +91 62064 65995`;
 
   try {
     const info = await transporter.sendMail({
       from,
       to: data.studentEmail,
-      subject: 'Your MLT Learning Zone Payment Requires Attention',
+      subject: 'Your Allied Learning Zone Payment Requires Attention',
       text: textContent,
       html: htmlContent,
     });

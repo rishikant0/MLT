@@ -99,7 +99,7 @@ router.post('/register', async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Registration successful! Welcome to MLT Learning Zone.',
+      message: 'Registration successful! Welcome to Allied Learning Zone.',
       data: {
         token,
         refreshToken,

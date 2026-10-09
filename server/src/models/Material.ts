@@ -65,6 +65,7 @@ const MaterialSchema = new Schema<IMaterial>(
     originalFileName: { type: String },
     filePath: { type: String },
     accessLevel: { type: String, enum: ['PUBLIC', 'PROTECTED'], default: 'PROTECTED' },
+    isSample: { type: Boolean, default: false },
     isPaid: { type: Boolean, default: true },
     price: { type: Number, default: 0 },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE', index: true },

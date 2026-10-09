@@ -71,8 +71,16 @@ router.get('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Res
 router.get('/:slug', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { slug } = req.params;
+    const isObjId = mongoose.Types.ObjectId.isValid(slug);
+    const query: any = {
+      status: 'ACTIVE',
+      $or: [
+        { slug },
+        ...(isObjId ? [{ _id: new mongoose.Types.ObjectId(slug) }] : []),
+      ],
+    };
 
-    const course = await Course.findOne({ slug, status: 'ACTIVE' });
+    const course = await Course.findOne(query);
 
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found.' });

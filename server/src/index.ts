@@ -10,6 +10,8 @@ import { ensureUploadDirectories } from './services/upload.service';
 
 import authRoutes from './routes/auth.routes';
 import courseRoutes from './routes/course.routes';
+import semesterRoutes from './routes/semester.routes';
+import subjectRoutes from './routes/subject.routes';
 import materialRoutes from './routes/material.routes';
 import paymentRoutes from './routes/payment.routes';
 import studentRoutes from './routes/student.routes';
@@ -83,14 +85,14 @@ app.use('/api/', apiLimiter);
 app.get('/api/health', (_req, res) => {
   res.json({
     success: true,
-    message: 'MLT Learning Zone API is running',
+    message: 'Allied Learning Zone API is running',
   });
 });
 
 app.get('/health', (_req, res) => {
   res.json({
     success: true,
-    message: 'MLT Learning Zone API is running',
+    message: 'Allied Learning Zone API is running',
   });
 });
 
@@ -129,6 +131,8 @@ app.get('/api/stats', async (_req, res) => {
 // API Routes & Route Aliases
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
+app.use('/api/semesters', semesterRoutes);
+app.use('/api/subjects', subjectRoutes);
 app.use('/api/study-material', materialRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/payments', paymentRoutes);
@@ -137,9 +141,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/blog', blogRoutes);
 app.use('/api/enquire', enquiryRoutes);
 
-// Direct Aliases for Top-Level Collections to prevent "API Route not found"
-app.use('/api/semesters', adminRoutes);
-app.use('/api/subjects', adminRoutes);
+// Direct Aliases for remaining top-level routes
 app.use('/api/pricing', adminRoutes);
 app.use('/api/purchases', adminRoutes);
 
@@ -164,7 +166,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 const startServer = async () => {
   await connectDB();
   app.listen(PORT, () => {
-    console.log(`🚀 MLT Learning Zone Server running on port ${PORT}`);
+    console.log(`🚀 Allied Learning Zone Server running on port ${PORT}`);
   });
 };
 

@@ -354,21 +354,78 @@ router.put('/courses/:id', async (req: AuthenticatedRequest, res: Response) => {
 
 router.delete('/courses/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ success: false, message: 'Invalid ID' });
+    let { id } = req.params;
+    if (id.startsWith('course_')) {
+      id = id.replace(/^course_/, '');
+    }
 
-    const course = await Course.findByIdAndDelete(id);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid Course ID format.' });
+    }
+
+    const courseObjId = new mongoose.Types.ObjectId(id);
+    const course = await Course.findById(courseObjId);
+
+    if (!course) {
+      return res.status(404).json({ success: false, message: 'Course not found.' });
+    }
+
+    // Check if active student entitlements exist for this course
+    const activeEntitlementsCount = await Entitlement.countDocuments({
+      courseId: courseObjId,
+      status: 'ACTIVE',
+    });
+
+    if (activeEntitlementsCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot permanently delete course '${course.name}' because ${activeEntitlementsCount} student(s) currently have active entitlements. Deactivate the course status instead.`,
+      });
+    }
+
+    // Find all semesters for this course
+    const semesters = await Semester.find({ courseId: courseObjId });
+    const semesterIds = semesters.map((s) => s._id);
+
+    // Find all subjects for these semesters/course
+    const subjects = await Subject.find({
+      $or: [{ courseId: courseObjId }, { semesterId: { $in: semesterIds } }],
+    });
+    const subjectIds = subjects.map((s) => s._id);
+
+    // Cascade cleanup associated materials, subjects, and semesters
+    await Material.deleteMany({
+      $or: [
+        { courseId: courseObjId },
+        { semesterId: { $in: semesterIds } },
+        { subjectId: { $in: subjectIds } },
+      ],
+    });
+
+    await Subject.deleteMany({
+      $or: [{ courseId: courseObjId }, { semesterId: { $in: semesterIds } }],
+    });
+
+    await Semester.deleteMany({ courseId: courseObjId });
+
+    // Delete the course record
+    await Course.findByIdAndDelete(courseObjId);
 
     await logAuditAction({
       adminId: req.user?.id,
       action: 'DELETE_COURSE',
       entity: 'Course',
       entityId: id,
+      details: { courseName: course.name },
     });
 
-    return res.json({ success: true, message: 'Course deleted successfully.' });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to delete course.' });
+    return res.json({
+      success: true,
+      message: `Course '${course.name}' and all associated semesters, subjects, and study materials deleted successfully.`,
+    });
+  } catch (error: any) {
+    console.error('Delete course error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to delete course.' });
   }
 });
 
@@ -525,8 +582,20 @@ router.post('/subjects', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Selected Semester was not found.' });
     }
 
-    const courseId = sem.courseId?.toString();
-    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId) || !(await Course.exists({ _id: courseId }))) {
+    let resolvedCourseId = sem.courseId?.toString();
+    const reqCourseId = req.body.courseId;
+
+    if (
+      (!resolvedCourseId || !mongoose.Types.ObjectId.isValid(resolvedCourseId)) &&
+      reqCourseId &&
+      mongoose.Types.ObjectId.isValid(String(reqCourseId))
+    ) {
+      resolvedCourseId = String(reqCourseId);
+      sem.courseId = new mongoose.Types.ObjectId(resolvedCourseId);
+      await sem.save();
+    }
+
+    if (!resolvedCourseId || !mongoose.Types.ObjectId.isValid(resolvedCourseId) || !(await Course.exists({ _id: resolvedCourseId }))) {
       return res.status(400).json({ success: false, message: 'Selected Semester is not linked to a valid Course.' });
     }
     const finalPrice = price !== undefined ? Number(price) : (fee !== undefined ? Number(fee) : 0);
@@ -700,7 +769,8 @@ router.post('/materials', uploadMaterial.single('file'), async (req: Authenticat
     const fileSizeStr = `${(req.file.size / (1024 * 1024)).toFixed(2)} MB`;
     const mimeTypeStr = req.file.mimetype;
 
-    const materialIsPaid = isSample === true || isSample === 'true' ? false : (isPaid !== undefined ? (isPaid === true || isPaid === 'true') : true);
+    const sampleBool = isSample === true || isSample === 'true';
+    const materialIsPaid = sampleBool ? false : (isPaid !== undefined ? (isPaid === true || isPaid === 'true') : true);
 
     const material = await Material.create({
       courseId,
@@ -715,8 +785,9 @@ router.post('/materials', uploadMaterial.single('file'), async (req: Authenticat
       originalFileName: origFileNameStr,
       fileSize: fileSizeStr,
       mimeType: mimeTypeStr,
+      isSample: sampleBool,
       isPaid: materialIsPaid,
-      accessLevel: accessLevel || (materialIsPaid ? 'PROTECTED' : 'PUBLIC'),
+      accessLevel: accessLevel || (sampleBool || !materialIsPaid ? 'PUBLIC' : 'PROTECTED'),
       price: price ? Number(price) : 0,
       status: status || 'ACTIVE',
     });
@@ -764,7 +835,10 @@ router.put('/materials/:id', uploadMaterial.single('file'), async (req: Authenti
       material.subjectId = resolved.references.subjectId;
     }
     if (isPaid !== undefined || isSample !== undefined) {
-      material.isPaid = isSample === true || isSample === 'true' ? false : (isPaid === true || isPaid === 'true');
+      const isSampleBool = isSample === true || isSample === 'true';
+      material.isSample = isSampleBool;
+      material.isPaid = isSampleBool ? false : (isPaid === true || isPaid === 'true');
+      material.accessLevel = (isSampleBool || !material.isPaid) ? 'PUBLIC' : (accessLevel || 'PROTECTED');
     }
     if (price !== undefined) material.price = Number(price);
     if (status) material.status = status;
@@ -900,7 +974,9 @@ router.post('/pricing', async (req: AuthenticatedRequest, res: Response) => {
     );
 
     // Synchronize price field directly on target entity
-    if (type === 'SEMESTER') {
+    if (type === 'COURSE') {
+      await Course.findByIdAndUpdate(objId, { price: origPrice, offerPrice: offer });
+    } else if (type === 'SEMESTER') {
       await Semester.findByIdAndUpdate(objId, { price: offer });
     } else if (type === 'SUBJECT') {
       await Subject.findByIdAndUpdate(objId, { price: offer });
@@ -1420,9 +1496,9 @@ router.get('/settings/upi', async (_req, res: Response) => {
   try {
     const upiSetting = await SystemSetting.findOne({ key: 'UPI_CONFIG' });
     const config = upiSetting?.value || {
-      upiId: 'mltlearningzone@upi',
-      payeeName: 'MLT Learning Zone',
-      qrCodeUrl: '/logo.jpg',
+      upiId: '6206465995@ybl',
+      payeeName: 'Allied Learning Zone',
+      qrCodeUrl: '/QR.jpeg',
       instructions: 'Pay using Google Pay, PhonePe, Paytm, or any UPI app. Enter the 12-digit UTR/Ref No. and attach a screenshot after payment.',
     };
 
@@ -1437,9 +1513,9 @@ router.post('/settings/upi', async (req: AuthenticatedRequest, res: Response) =>
     const { upiId, payeeName, qrCodeUrl, instructions } = req.body;
 
     const value = {
-      upiId: upiId || 'mltlearningzone@upi',
-      payeeName: payeeName || 'MLT Learning Zone',
-      qrCodeUrl: qrCodeUrl || '/logo.jpg',
+      upiId: upiId || '6206465995@ybl',
+      payeeName: payeeName || 'Allied Learning Zone',
+      qrCodeUrl: qrCodeUrl || '/QR.jpeg',
       instructions: instructions || 'Scan QR Code or copy UPI ID to complete payment.',
     };
 

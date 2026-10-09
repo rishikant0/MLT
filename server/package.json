@@ -1,7 +1,7 @@
 {
   "name": "mlt-learning-zone-server",
   "version": "1.0.0",
-  "description": "Backend server for MLT Learning Zone educational platform",
+  "description": "Backend server for Allied Learning Zone educational platform",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

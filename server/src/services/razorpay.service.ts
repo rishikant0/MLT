@@ -40,7 +40,7 @@ export const createRazorpayOrder = async (orderIdString: string, amountInINR: nu
     currency: 'INR',
     receipt: orderIdString,
     notes: {
-      platform: 'MLT Learning Zone',
+      platform: 'Allied Learning Zone',
     },
   });
 

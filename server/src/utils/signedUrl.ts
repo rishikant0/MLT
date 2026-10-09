@@ -17,8 +17,8 @@ export const checkStudentEntitlementForMaterial = async (
     return { hasAccess: false, reason: 'Material not found' };
   }
 
-  // If material is free/not paid, grant access
-  if (!material.isPaid) {
+  // If material is explicitly free, a sample, or public access, grant access immediately
+  if (!material.isPaid || material.isSample || material.accessLevel === 'PUBLIC') {
     return { hasAccess: true };
   }
 
@@ -61,19 +61,25 @@ export const checkStudentEntitlementForMaterial = async (
 export const generateSignedMaterialUrl = (userId: string, materialId: string): string => {
   const expiresInSeconds = 3600; // 1 hour token
   const token = jwt.sign(
-    { userId, materialId },
+    { userId, materialId, purpose: 'material_access' },
     config.jwtSecret,
     { expiresIn: expiresInSeconds }
   );
 
-  return `${config.backendUrl}/api/materials/${materialId}/access?token=${token}`;
+  return `${config.backendUrl}/api/materials/stream?materialId=${materialId}&token=${token}`;
 };
 
-export const verifySignedMaterialToken = (token: string, materialId: string): boolean => {
+export const verifySignedMaterialToken = (
+  token: string,
+  materialId: string
+): { valid: boolean; userId?: string } => {
   try {
-    const decoded = jwt.verify(token, config.jwtSecret) as { userId: string; materialId: string };
-    return decoded.materialId === materialId;
+    const decoded = jwt.verify(token, config.jwtSecret) as { userId: string; materialId: string; purpose?: string };
+    if (decoded.purpose !== 'material_access' || decoded.materialId !== materialId) {
+      return { valid: false };
+    }
+    return { valid: true, userId: decoded.userId };
   } catch (error) {
-    return false;
+    return { valid: false };
   }
 };

@@ -102,10 +102,11 @@ async function processSuccessfulOrder(order: any, razorpayPaymentId: string, met
   return { purchase, entitlement };
 }
 
-// 0. Calculate Price (Public API)
-router.post('/calculate-price', async (req, res) => {
+// 0. Calculate Price (Public API - Supports both GET & POST)
+router.all('/calculate-price', async (req, res) => {
   try {
-    const parsed = createOrderSchema.safeParse(req.body);
+    const inputData = req.method === 'GET' ? req.query : req.body;
+    const parsed = createOrderSchema.safeParse(inputData);
     if (!parsed.success) {
       return res.status(400).json({ success: false, message: parsed.error.errors[0].message });
     }
@@ -345,9 +346,9 @@ router.get('/upi-details', async (_req, res: Response) => {
   try {
     const upiSetting = await SystemSetting.findOne({ key: 'UPI_CONFIG' });
     const config = upiSetting?.value || {
-      upiId: 'mltlearningzone@upi',
-      payeeName: 'MLT Learning Zone',
-      qrCodeUrl: '/logo.jpg',
+      upiId: '6206465995@ybl',
+      payeeName: 'Allied Learning Zone',
+      qrCodeUrl: '/QR.jpeg',
       instructions: 'Pay using Google Pay, PhonePe, Paytm, or any UPI app. Enter the 12-digit UTR/Ref No. and attach a screenshot after payment.',
     };
 

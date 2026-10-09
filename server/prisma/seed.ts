@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Starting MLT Learning Zone database seeding...');
+  console.log('🌱 Starting Allied Learning Zone database seeding...');
 
   // 1. Clean existing records
   await prisma.auditLog.deleteMany();
